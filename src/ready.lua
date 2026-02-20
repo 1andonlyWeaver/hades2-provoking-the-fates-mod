@@ -10,7 +10,7 @@
 -- ============================================================================
 -- Hook 1: Reset per-run state on new run
 -- ============================================================================
-mod.Path.Wrap( "StartNewRun", function( base, prevRun, args )
+modutil.mod.Path.Wrap( "StartNewRun", function( base, prevRun, args )
 	ProvokeMod.ResetRunState()
 	return base( prevRun, args )
 end, mod )
@@ -18,7 +18,7 @@ end, mod )
 -- ============================================================================
 -- Hook 2: Safety cleanup on hero death
 -- ============================================================================
-mod.Path.Wrap( "KillHero", function( base, victim, triggerArgs )
+modutil.mod.Path.Wrap( "KillHero", function( base, victim, triggerArgs )
 	ProvokeMod.RemoveTransientFear()
 	ProvokeMod.ResetRunState()
 	return base( victim, triggerArgs )
@@ -27,7 +27,7 @@ end, mod )
 -- ============================================================================
 -- Hook 3: Intercept door interaction for MetaProgress doors
 -- ============================================================================
-mod.Path.Wrap( "AttemptUseDoor", function( base, door, args )
+modutil.mod.Path.Wrap( "AttemptUseDoor", function( base, door, args )
 	-- Only intercept MetaProgress doors that haven't been handled yet
 	if ProvokeMod.IsMetaProgressDoor( door )
 		and not ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
@@ -57,7 +57,7 @@ end, mod )
 -- ============================================================================
 -- Hook 4: Prepare transient fear on room exit
 -- ============================================================================
-mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
+modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- If this door was provoked, queue fear for the next room
 	local provokeData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	if provokeData and provokeData.Provoked then
@@ -74,20 +74,17 @@ end, mod )
 -- ============================================================================
 -- Hook 5: Inject transient fear on room start
 -- ============================================================================
-mod.Path.Wrap( "StartRoom", function( base, currentRun, currentRoom )
-	-- Let the room initialize fully first
-	local result = base( currentRun, currentRoom )
-
-	-- Then inject fear if we have a pending provocation
+modutil.mod.Path.Wrap( "StartRoom", function( base, currentRun, currentRoom )
+	-- Inject fear BEFORE base, because base blocks through the entire encounter
 	ProvokeMod.OnRoomStart( currentRun, currentRoom )
 
-	return result
+	return base( currentRun, currentRoom )
 end, mod )
 
 -- ============================================================================
 -- Hook 6: Remove transient fear on encounter end
 -- ============================================================================
-mod.Path.Wrap( "EndEncounterEffects", function( base, currentRun, currentRoom, currentEncounter )
+modutil.mod.Path.Wrap( "EndEncounterEffects", function( base, currentRun, currentRoom, currentEncounter )
 	-- Remove transient fear BEFORE base processes rewards/unlocks
 	-- so vow values don't leak into next-room calculations
 	ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )

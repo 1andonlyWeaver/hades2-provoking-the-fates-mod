@@ -172,7 +172,7 @@ function ProvokeMod.InjectTransientFear( fearCost )
 	end
 	ProvokeMod.RunState.TransientFearActive = true
 
-	DebugPrint({ Text = "[ProvokeMod] Injected Transient Fear: " .. fearCost .. " points across " .. ProvokeMod.TableLength( injections ) .. " vows" })
+	print("[ProvokeMod] Injected Transient Fear: " .. fearCost .. " points across " .. ProvokeMod.TableLength( injections ) .. " vows")
 end
 
 -- Remove all transient vows, restoring original ranks. Idempotent.
@@ -188,7 +188,7 @@ function ProvokeMod.RemoveTransientFear()
 	ProvokeMod.RunState.ActiveTransientVows = {}
 	ProvokeMod.RunState.TransientFearActive = false
 
-	DebugPrint({ Text = "[ProvokeMod] Removed Transient Fear, vows restored" })
+	print("[ProvokeMod] Removed Transient Fear, vows restored")
 end
 
 -- ============================================================================
@@ -253,7 +253,7 @@ function ProvokeMod.TransformDoor( door, choiceType )
 	-- Refresh the door's reward preview icon
 	ProvokeMod.RefreshDoorPreview( door )
 
-	DebugPrint({ Text = "[ProvokeMod] Transformed door to " .. choiceType .. " (Fear: " .. fearCost .. ")" })
+	print("[ProvokeMod] Transformed door to " .. choiceType .. " (Fear: " .. fearCost .. ")")
 end
 
 function ProvokeMod.RefreshDoorPreview( door )
@@ -490,18 +490,32 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 
 		ProvokeMod.InjectTransientFear( fearCost )
 
-		-- Display the Fates Provoked banner
-		thread( DisplayInfoBanner, nil, {
-			Text = "The Fates are Provoked",
-			SubtitleData = {
-				{ Text = "+" .. fearCost .. " Transient Fear" },
-			},
-			AnimationName = "LocationBackingIrisDeathIn",
-			AnimationOutName = "LocationBackingIrisDeathOut",
-			Color = { 0.55, 0.25, 0.85, 1.0 },
-			TextColor = { 1.0, 0.80, 1.0, 1.0 },
-			Layer = "Combat_Menu_TraitTray_Overlay",
+		-- Display the Fates Provoked notification (created synchronously so it appears immediately)
+		local banner = CreateScreenComponent({
+			Name = "BlankObstacle",
+			Group = "Combat_Menu_TraitTray_Overlay",
+			X = ScreenCenterX,
+			Y = 140,
 		})
+		CreateTextBox({
+			Id = banner.Id,
+			Text = "The Fates are Provoked  (+" .. fearCost .. " Fear)",
+			FontSize = 26,
+			Color = { 0.74, 0.63, 1.0, 1.0 },
+			Font = "P22UndergroundSCHeavy",
+			ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+			Justification = "Center",
+			OutlineThickness = 2,
+			OutlineColor = { 0, 0, 0, 1 },
+		})
+		-- Fade out and destroy after a few seconds
+		local bannerId = banner.Id
+		thread( function()
+			wait( 3.0 )
+			ModifyTextBox({ Id = bannerId, FadeTarget = 0, FadeDuration = 0.5 })
+			wait( 0.5 )
+			Destroy({ Id = bannerId })
+		end)
 	end
 end
 
