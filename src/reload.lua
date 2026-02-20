@@ -490,12 +490,15 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 
 		ProvokeMod.InjectTransientFear( fearCost )
 
-		-- Display the Fates Provoked notification (created synchronously so it appears immediately)
+		-- Collect sorted vow effect strings now that ActiveTransientVows is populated
+		local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
+
+		-- Title line: "The Fates are Provoked  (+N Fear)"
 		local banner = CreateScreenComponent({
 			Name = "BlankObstacle",
 			Group = "Combat_Menu_TraitTray_Overlay",
 			X = ScreenCenterX,
-			Y = 140,
+			Y = 128,
 		})
 		CreateTextBox({
 			Id = banner.Id,
@@ -508,13 +511,44 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 			OutlineThickness = 2,
 			OutlineColor = { 0, 0, 0, 1 },
 		})
-		-- Fade out and destroy after a few seconds
-		local bannerId = banner.Id
+
+		-- Vow lines are created one-by-one inside the thread so they pop in sequentially
 		thread( function()
+			local allIds = { banner.Id }
+			local lineY = 160
+
+			wait( 0.6 )
+			for _, lineText in ipairs( vowLines ) do
+				local line = CreateScreenComponent({
+					Name = "BlankObstacle",
+					Group = "Combat_Menu_TraitTray_Overlay",
+					X = ScreenCenterX,
+					Y = lineY,
+				})
+				CreateTextBox({
+					Id = line.Id,
+					Text = lineText,
+					FontSize = 18,
+					Color = { 0.85, 0.78, 1.0, 0.9 },
+					Font = "P22UndergroundSCMedium",
+					ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+					Justification = "Center",
+					OutlineThickness = 1,
+					OutlineColor = { 0, 0, 0, 1 },
+				})
+				table.insert( allIds, line.Id )
+				lineY = lineY + 24
+				wait( 0.15 )
+			end
+
 			wait( 3.0 )
-			ModifyTextBox({ Id = bannerId, FadeTarget = 0, FadeDuration = 0.5 })
+			for _, id in ipairs( allIds ) do
+				ModifyTextBox({ Id = id, FadeTarget = 0, FadeDuration = 0.5 })
+			end
 			wait( 0.5 )
-			Destroy({ Id = bannerId })
+			for _, id in ipairs( allIds ) do
+				Destroy({ Id = id })
+			end
 		end)
 	end
 end
@@ -531,4 +565,103 @@ function ProvokeMod.TableLength( t )
 		count = count + 1
 	end
 	return count
+end
+
+-- Display names for each eligible vow (from English localization)
+ProvokeMod.VowDisplayNames = {
+	EnemyDamageShrineUpgrade      = "Vow of Pain",
+	EnemyHealthShrineUpgrade      = "Vow of Grit",
+	EnemyShieldShrineUpgrade      = "Vow of Wards",
+	EnemySpeedShrineUpgrade       = "Vow of Frenzy",
+	EnemyCountShrineUpgrade       = "Vow of Hordes",
+	NextBiomeEnemyShrineUpgrade   = "Vow of Menace",
+	EnemyRespawnShrineUpgrade     = "Vow of Return",
+	EnemyEliteShrineUpgrade       = "Vow of Fangs",
+	HealingReductionShrineUpgrade = "Vow of Scars",
+	ShopPricesShrineUpgrade       = "Vow of Debt",
+	MinibossCountShrineUpgrade    = "Vow of Shadow",
+	BiomeSpeedShrineUpgrade       = "Vow of Time",
+	LimitGraspShrineUpgrade       = "Vow of Void",
+	BoonManaReserveShrineUpgrade  = "Vow of Hubris",
+	BanUnpickedBoonsShrineUpgrade = "Vow of Denial",
+}
+
+-- printf-style format strings for the numerical effect at the applied rank.
+-- BiomeSpeedShrineUpgrade is handled separately (UseTimeString).
+ProvokeMod.VowValueFormats = {
+	EnemyDamageShrineUpgrade      = "+%d%% foe damage",
+	EnemyHealthShrineUpgrade      = "+%d%% foe health",
+	EnemyShieldShrineUpgrade      = "%d shield per foe",
+	EnemySpeedShrineUpgrade       = "+%d%% foe speed",
+	EnemyCountShrineUpgrade       = "+%d%% more foes",
+	NextBiomeEnemyShrineUpgrade   = "%d%% next-biome foes",
+	EnemyRespawnShrineUpgrade     = "%d%% respawn chance",
+	EnemyEliteShrineUpgrade       = "%d perk(s) on elites",
+	HealingReductionShrineUpgrade = "healing reduced to %d%%",
+	ShopPricesShrineUpgrade       = "+%d%% shop prices",
+	MinibossCountShrineUpgrade    = "+%d mini-boss",
+	LimitGraspShrineUpgrade       = "%d%% grasp available",
+	BoonManaReserveShrineUpgrade  = "reserves %d mana/rarity",
+	BanUnpickedBoonsShrineUpgrade = "%d unpicked boons banned",
+}
+
+-- Compute the display value for a vow at newRank using its SimpleExtractValues rules.
+-- Returns nil if the data is unavailable.
+function ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
+	local metaData = MetaUpgradeData and MetaUpgradeData[vowName]
+	if not metaData or not metaData.Ranks then return nil end
+
+	local rankData = metaData.Ranks[newRank]
+	if not rankData then return nil end
+
+	local changeValue = rankData.ChangeValue
+
+	-- BiomeSpeedShrineUpgrade: seconds → "M:SS"
+	if vowName == "BiomeSpeedShrineUpgrade" then
+		local secs = math.floor( changeValue )
+		return string.format( "%d:%02d", math.floor( secs / 60 ), secs % 60 )
+	end
+
+	-- Apply SimpleExtractValues arithmetic (Multiply then Add)
+	local display = changeValue
+	if metaData.SimpleExtractValues then
+		local rule = metaData.SimpleExtractValues[1]
+		if rule and not rule.UseTimeString then
+			if rule.Multiply then display = display * rule.Multiply end
+			if rule.Add     then display = display + rule.Add end
+		end
+	end
+	return math.floor( display + 0.5 )
+end
+
+-- Return "Vow of X: +Y% description" for one active transient vow entry.
+function ProvokeMod.GetVowValueText( vowName, vowData )
+	local displayName = ProvokeMod.VowDisplayNames[vowName] or vowName
+	local newRank = ( vowData.OriginalRank or 0 ) + ( vowData.AddedRanks or 0 )
+	local displayValue = ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
+
+	if displayValue == nil then
+		return displayName
+	end
+
+	-- BiomeSpeedShrineUpgrade display value is already a formatted string
+	if vowName == "BiomeSpeedShrineUpgrade" then
+		return displayName .. ": " .. displayValue .. " biome limit"
+	end
+
+	local fmt = ProvokeMod.VowValueFormats[vowName]
+	if fmt then
+		return displayName .. ": " .. string.format( fmt, displayValue )
+	end
+	return displayName
+end
+
+-- Build a sorted array of vow effect description strings.
+function ProvokeMod.GetVowListText( activeVows )
+	local entries = {}
+	for vowName, vowData in pairs( activeVows ) do
+		table.insert( entries, ProvokeMod.GetVowValueText( vowName, vowData ) )
+	end
+	table.sort( entries )
+	return entries
 end
