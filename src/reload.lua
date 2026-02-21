@@ -54,7 +54,8 @@ end
 -- Section 2: Utility Functions
 -- ============================================================================
 
-function ProvokeMod.GetFearCost( choiceType )
+function ProvokeMod.GetFearCost( choiceType, countOffset )
+	countOffset = countOffset or 0
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
 		baseCost = config.Cost_RegularBoon
@@ -65,7 +66,8 @@ function ProvokeMod.GetFearCost( choiceType )
 	end
 	local greedBonus = 0
 	if config.EnableGreed then
-		greedBonus = ProvokeMod.RunState.ProvocationCount * config.GreedPenalty_PerUse
+		local effectiveCount = math.max( 0, ProvokeMod.RunState.ProvocationCount + countOffset )
+		greedBonus = effectiveCount * config.GreedPenalty_PerUse
 	end
 	return baseCost + greedBonus
 end
@@ -77,7 +79,9 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	return (door.RewardStoreName or door.Room.RewardStoreName) == "MetaProgress"
 end
 
--- Find the first un-provoked MetaProgress exit in the current room.
+-- Find the first MetaProgress exit in the current room (provoked or not).
+-- Also matches doors that were originally MetaProgress but have been transformed
+-- (TransformDoor changes door.RewardStoreName away from "MetaProgress").
 -- Returns the door object or nil if none found.
 -- Doors are stored in the global MapState.OfferedExitDoors (set by DoUnlockRoomExits).
 function ProvokeMod.FindProvokableDoor()
@@ -88,11 +92,17 @@ function ProvokeMod.FindProvokableDoor()
 	local count = 0
 	for _, door in pairs( MapState.OfferedExitDoors ) do
 		count = count + 1
-		if ProvokeMod.IsMetaProgressDoor( door )
-			and not ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
-			and door.ReadyToUse then
-			print("[ProvokeMod] FindProvokableDoor: found MetaProgress door " .. tostring(door.ObjectId))
-			return door
+		if door.ReadyToUse then
+			if ProvokeMod.IsMetaProgressDoor( door ) then
+				print("[ProvokeMod] FindProvokableDoor: found MetaProgress door " .. tostring(door.ObjectId))
+				return door
+			end
+			-- Also match doors that were originally MetaProgress before transformation
+			local pd = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+			if pd and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress" then
+				print("[ProvokeMod] FindProvokableDoor: found provoked MetaProgress door " .. tostring(door.ObjectId))
+				return door
+			end
 		end
 	end
 	print("[ProvokeMod] FindProvokableDoor: checked " .. count .. " doors, none provokable")
@@ -127,9 +137,6 @@ function ProvokeMod.OnExitsUnlocked()
 			if provokableDoor then
 				thread( function()
 					ProvokeMod.OpenProvocationScreen( provokableDoor )
-					if not ProvokeMod.RunState.ProvokedDoors[provokableDoor.ObjectId] then
-						ProvokeMod.RunState.ProvokedDoors[provokableDoor.ObjectId] = { Declined = true }
-					end
 					if ProvokeMod.FindProvokableDoor() == nil then
 						ProvokeMod.DespawnProvokeHint()
 					end
@@ -146,9 +153,15 @@ function ProvokeMod.OnShowUseButton( objectId )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
 	if door == nil then return end
-	if not ProvokeMod.IsMetaProgressDoor( door ) then return end
-	if ProvokeMod.RunState.ProvokedDoors[door.ObjectId] then return end
-	ProvokeMod.SpawnProvokeHint()
+	-- Show hint for MetaProgress doors, or for doors that were originally MetaProgress
+	if ProvokeMod.IsMetaProgressDoor( door ) then
+		ProvokeMod.SpawnProvokeHint()
+		return
+	end
+	local pd = ProvokeMod.RunState.ProvokedDoors[objectId]
+	if pd and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress" then
+		ProvokeMod.SpawnProvokeHint()
+	end
 end
 
 -- Show a "second line" hint below the door's {I} Proceed UsePrompt, matching
@@ -374,6 +387,38 @@ function ProvokeMod.TransformDoor( door, choiceType )
 	print("[ProvokeMod] Transformed door to " .. choiceType .. " (Fear: " .. fearCost .. ")")
 end
 
+-- Revert a provoked door back to its original MetaProgress reward.
+-- Decrements ProvocationCount and clears the ProvokedDoors entry. Idempotent.
+function ProvokeMod.UnTransformDoor( door )
+	local provokeData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+	if provokeData == nil or not provokeData.Provoked then
+		print("[ProvokeMod] UnTransformDoor: door not provoked, skipping")
+		return
+	end
+
+	local room = door.Room
+
+	-- Restore original room and door reward state
+	room.ChosenRewardType = provokeData.OriginalRewardType
+	room.ForceLootName    = provokeData.OriginalForceLootName
+	room.RewardStoreName  = provokeData.OriginalRewardStoreName
+	door.RewardStoreName  = provokeData.OriginalRewardStoreName
+
+	-- Clear the boon rarity override (set by EnhancedBoon; nil for other types)
+	room.BoonRaritiesOverride = nil
+
+	-- Decrement the greed counter, clamped to 0
+	ProvokeMod.RunState.ProvocationCount = math.max( 0, ProvokeMod.RunState.ProvocationCount - 1 )
+
+	-- Clear the provoke entry so the door is treated as fresh
+	ProvokeMod.RunState.ProvokedDoors[door.ObjectId] = nil
+
+	-- Refresh the door's reward preview icon back to the original
+	ProvokeMod.RefreshDoorPreview( door )
+
+	print("[ProvokeMod] UnTransformDoor: reverted door " .. tostring(door.ObjectId))
+end
+
 -- Compute the animation name for a door's new reward icon from LootData.
 function ProvokeMod.GetDoorIconAnimName( door )
 	local room = door.Room
@@ -443,12 +488,19 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return
 	end
 
+	-- Detect whether this door has already been transformed.
+	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+	local isReprovoke = existingData ~= nil and existingData.Provoked == true
+	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
+	-- When re-opening a provoked door, costs should reflect what will be charged
+	-- after the current provocation is undone (ProvocationCount - 1).
+	local costOffset = isReprovoke and -1 or 0
+
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
 
 	OnScreenOpened( screen )
 
-	-- Ornate dialog frame. Narrow horizontally (X=0.62) to reduce excess blank width;
-	-- shift down 25px so the skull sits comfortably above the title.
+	-- Ornate dialog frame. Scale slightly larger in re-provoke mode to fit 5th button.
 	local menuY = ScreenCenterY + 25
 	screen.Components.Frame = CreateScreenComponent({
 		Name = "BlankObstacle",
@@ -457,7 +509,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y = menuY,
 	})
 	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.78 })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 0.92 or 0.78 })
 
 	local centerY = menuY
 
@@ -487,26 +539,33 @@ function ProvokeMod.OpenProvocationScreen( door )
 	})
 	CreateTextBox({
 		Id = screen.Components.Subtitle.Id,
-		Text = "Upgrade this reward. The Fates will retaliate.",
+		Text = isReprovoke
+			and "Change your choice, or revert the door."
+			or  "Upgrade this reward. The Fates will retaliate.",
 		FontSize = 15,
 		Color = { 0.75, 0.70, 0.85, 0.9 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
 
-	-- Calculate costs
-	local regularCost = ProvokeMod.GetFearCost( "RegularBoon" )
-	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon" )
-	local hammerCost = ProvokeMod.GetFearCost( "Hammer" )
+	-- Calculate costs (offset = -1 in re-provoke mode so the displayed cost
+	-- matches what TransformDoor will actually charge after the undo).
+	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  costOffset )
+	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", costOffset )
+	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       costOffset )
 
-	local canRegular = regularCost <= config.MaxTransientFear
+	local canRegular  = regularCost  <= config.MaxTransientFear
 	local canEnhanced = enhancedCost <= config.MaxTransientFear
-	local canHammer = hammerCost <= config.MaxTransientFear
+	local canHammer   = hammerCost   <= config.MaxTransientFear
 
-	local buttonY = centerY - 90
+	local buttonY       = centerY - 90
 	local buttonSpacing = 74
 
 	-- Option 1: Regular Boon
+	local regularLabel = "Olympian Favor  (+" .. regularCost .. " Fear)"
+	if currentChoiceType == "RegularBoon" then
+		regularLabel = regularLabel .. "  [current]"
+	end
 	screen.Components.RegularBoon = CreateScreenComponent({
 		Name = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
@@ -519,7 +578,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.Components.RegularBoon.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.RegularBoon.Id,
-		Text = "Olympian Favor  (+" .. regularCost .. " Fear)",
+		Text = regularLabel,
 		FontSize = 18,
 		Color = canRegular and { 1.0, 1.0, 1.0, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
@@ -530,6 +589,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Option 2: Enhanced Boon
+	local enhancedLabel = "Exalted Favor  (+" .. enhancedCost .. " Fear)"
+	if currentChoiceType == "EnhancedBoon" then
+		enhancedLabel = enhancedLabel .. "  [current]"
+	end
 	screen.Components.EnhancedBoon = CreateScreenComponent({
 		Name = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
@@ -542,7 +605,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.Components.EnhancedBoon.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.EnhancedBoon.Id,
-		Text = "Exalted Favor  (+" .. enhancedCost .. " Fear)",
+		Text = enhancedLabel,
 		FontSize = 18,
 		Color = canEnhanced and { 1.0, 0.85, 0.45, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
@@ -553,6 +616,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Option 3: Hammer
+	local hammerLabel = "Artificer's Design  (+" .. hammerCost .. " Fear)"
+	if currentChoiceType == "Hammer" then
+		hammerLabel = hammerLabel .. "  [current]"
+	end
 	screen.Components.Hammer = CreateScreenComponent({
 		Name = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
@@ -565,7 +632,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.Components.Hammer.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.Hammer.Id,
-		Text = "Artificer's Design  (+" .. hammerCost .. " Fear)",
+		Text = hammerLabel,
 		FontSize = 18,
 		Color = canHammer and { 1.0, 0.47, 0.20, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
@@ -575,26 +642,68 @@ function ProvokeMod.OpenProvocationScreen( door )
 		UseableOff({ Id = screen.Components.Hammer.Id })
 	end
 
-	-- Enter Room button — bound to both Cancel and Confirm so the player can
-	-- dismiss with a single quick press of either back or the interact button.
-	screen.Components.Cancel = CreateScreenComponent({
-		Name = "ButtonDefault",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = buttonY + buttonSpacing * 3,
-	})
-	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
-	screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
-	screen.Components.Cancel.Screen = screen
-	screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
-	CreateTextBox({
-		Id = screen.Components.Cancel.Id,
-		Text = "Enter Room",
-		FontSize = 16,
-		Color = { 0.7, 0.7, 0.7, 0.9 },
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
-	})
+	if isReprovoke then
+		-- Option 4 (re-provoke only): Revert to Original
+		screen.Components.Revert = CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Combat_Menu_TraitTray",
+			X = ScreenCenterX,
+			Y = buttonY + buttonSpacing * 3,
+		})
+		SetScaleX({ Id = screen.Components.Revert.Id, Fraction = 1.25 })
+		screen.Components.Revert.OnPressedFunctionName = "ProvokeMod__OnRevert"
+		screen.Components.Revert.Door = door
+		screen.Components.Revert.Screen = screen
+		CreateTextBox({
+			Id = screen.Components.Revert.Id,
+			Text = "Revert to Original",
+			FontSize = 16,
+			Color = { 0.85, 0.65, 0.65, 0.9 },
+			Font = "P22UndergroundSCMedium",
+			Justification = "Center",
+		})
+
+		-- Option 5 (re-provoke only): Keep Choice — dismiss without changing
+		screen.Components.Cancel = CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Combat_Menu_TraitTray",
+			X = ScreenCenterX,
+			Y = buttonY + buttonSpacing * 4,
+		})
+		SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
+		screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
+		screen.Components.Cancel.Screen = screen
+		screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
+		CreateTextBox({
+			Id = screen.Components.Cancel.Id,
+			Text = "Keep Choice",
+			FontSize = 16,
+			Color = { 0.7, 0.7, 0.7, 0.9 },
+			Font = "P22UndergroundSCMedium",
+			Justification = "Center",
+		})
+	else
+		-- Enter Room button — bound to both Cancel and Confirm so the player can
+		-- dismiss with a single quick press of either back or the interact button.
+		screen.Components.Cancel = CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Combat_Menu_TraitTray",
+			X = ScreenCenterX,
+			Y = buttonY + buttonSpacing * 3,
+		})
+		SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
+		screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
+		screen.Components.Cancel.Screen = screen
+		screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
+		CreateTextBox({
+			Id = screen.Components.Cancel.Id,
+			Text = "Enter Room",
+			FontSize = 16,
+			Color = { 0.7, 0.7, 0.7, 0.9 },
+			Font = "P22UndergroundSCMedium",
+			Justification = "Center",
+		})
+	end
 
 	HandleScreenInput( screen )
 end
@@ -613,24 +722,42 @@ end
 
 game.ProvokeMod__OnSelectRegularBoon = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
+	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
+	if existingData and existingData.Provoked then
+		ProvokeMod.UnTransformDoor( button.Door )
+	end
 	ProvokeMod.TransformDoor( button.Door, "RegularBoon" )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
 game.ProvokeMod__OnSelectEnhancedBoon = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
+	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
+	if existingData and existingData.Provoked then
+		ProvokeMod.UnTransformDoor( button.Door )
+	end
 	ProvokeMod.TransformDoor( button.Door, "EnhancedBoon" )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
 game.ProvokeMod__OnSelectHammer = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
+	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
+	if existingData and existingData.Provoked then
+		ProvokeMod.UnTransformDoor( button.Door )
+	end
 	ProvokeMod.TransformDoor( button.Door, "Hammer" )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
 game.ProvokeMod__OnCancel = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuBack" })
+	ProvokeMod.CloseProvocationScreen( screen )
+end
+
+game.ProvokeMod__OnRevert = function( screen, button )
+	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuBack" })
+	ProvokeMod.UnTransformDoor( button.Door )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
