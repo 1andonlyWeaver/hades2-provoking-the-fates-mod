@@ -63,7 +63,7 @@ function ProvokeMod.GetFearCost( choiceType, countOffset )
 	local greedBonus = 0
 	if config.EnableGreed then
 		local effectiveCount = math.max( 0, ProvokeMod.RunState.ProvocationCount + countOffset )
-		greedBonus = effectiveCount * config.GreedPenalty_PerUse
+		greedBonus = (2^effectiveCount) * config.GreedPenalty_PerUse
 	end
 	return baseCost + greedBonus
 end
@@ -575,7 +575,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local buttonSpacing = 74
 
 	-- Option 1: Regular Boon
-	local regularLabel = "Olympian Favor  (+" .. regularCost .. " Fear)"
+	local regularLabel = "Boon  (+" .. regularCost .. " Fear)"
 	if currentChoiceType == "RegularBoon" then
 		regularLabel = regularLabel .. "  [current]"
 	end
@@ -602,7 +602,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Option 2: Enhanced Boon
-	local enhancedLabel = "Exalted Favor  (+" .. enhancedCost .. " Fear)"
+	local enhancedLabel = "Enhanced Boon  (+" .. enhancedCost .. " Fear)"
 	if currentChoiceType == "EnhancedBoon" then
 		enhancedLabel = enhancedLabel .. "  [current]"
 	end
@@ -629,7 +629,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Option 3: Hammer
-	local hammerLabel = "Artificer's Design  (+" .. hammerCost .. " Fear)"
+	local hammerLabel = "Daedalus Hammer  (+" .. hammerCost .. " Fear)"
 	if currentChoiceType == "Hammer" then
 		hammerLabel = hammerLabel .. "  [current]"
 	end
