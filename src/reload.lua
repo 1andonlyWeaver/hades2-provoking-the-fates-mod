@@ -37,6 +37,7 @@ function ProvokeMod.ResetRunState()
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,
+		NearestProvokableDoor = nil,
 	}
 end
 
@@ -128,7 +129,7 @@ function ProvokeMod.OnExitsUnlocked()
 				break
 			end
 
-			local provokableDoor = ProvokeMod.FindProvokableDoor()
+			local provokableDoor = ProvokeMod.RunState.NearestProvokableDoor or ProvokeMod.FindProvokableDoor()
 			if provokableDoor then
 				thread( function()
 					ProvokeMod.OpenProvocationScreen( provokableDoor )
@@ -143,19 +144,31 @@ function ProvokeMod.OnExitsUnlocked()
 end
 
 -- Called when the game shows a use prompt for an obstacle (player entered interact range).
--- Shows the Provoke hint only when the relevant MetaProgress door is in range.
+-- Shows the Provoke hint only when the relevant MetaProgress door is in range,
+-- and tracks which door the player is currently nearest to.
 function ProvokeMod.OnShowUseButton( objectId )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
 	if door == nil then return end
 	-- Show hint for MetaProgress doors, or for doors that were originally MetaProgress
 	if ProvokeMod.IsMetaProgressDoor( door ) then
+		ProvokeMod.RunState.NearestProvokableDoor = door
 		ProvokeMod.SpawnProvokeHint()
 		return
 	end
 	local pd = ProvokeMod.RunState.ProvokedDoors[objectId]
 	if pd and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress" then
+		ProvokeMod.RunState.NearestProvokableDoor = door
 		ProvokeMod.SpawnProvokeHint()
+	end
+end
+
+-- Called when the game hides a use prompt (player left interact range).
+-- Clears the nearest-door reference so a stale door is not used when the hotkey fires.
+function ProvokeMod.OnHideUseButton( objectId )
+	local nearest = ProvokeMod.RunState.NearestProvokableDoor
+	if nearest and nearest.ObjectId == objectId then
+		ProvokeMod.RunState.NearestProvokableDoor = nil
 	end
 end
 

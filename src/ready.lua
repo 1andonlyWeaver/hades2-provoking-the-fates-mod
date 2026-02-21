@@ -83,3 +83,12 @@ modutil.mod.Path.Wrap( "ShowUseButton", function( base, objectId, useTarget )
 	ProvokeMod.OnShowUseButton( objectId )
 	return result
 end, mod )
+
+-- ============================================================================
+-- Hook 8: Clear nearest-door tracking when player leaves door proximity
+-- ============================================================================
+modutil.mod.Path.Wrap( "HideUseButton", function( base, objectId, useTarget, fadeDuration )
+	local result = base( objectId, useTarget, fadeDuration )
+	ProvokeMod.OnHideUseButton( objectId )
+	return result
+end, mod )
