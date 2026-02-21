@@ -72,6 +72,11 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	if door == nil or door.Room == nil then
 		return false
 	end
+	-- Exclude story/NPC rooms (Arachne, Narcissus, etc.): their ForcedReward propagates
+	-- to ChosenRewardType = "Story", but RewardStoreName can still be "MetaProgress".
+	if door.Room.ChosenRewardType == "Story" or door.Room.ForcedReward == "Story" then
+		return false
+	end
 	return (door.RewardStoreName or door.Room.RewardStoreName) == "MetaProgress"
 end
 
