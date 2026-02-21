@@ -157,6 +157,7 @@ function ProvokeMod.OnShowUseButton( objectId )
 	if door == nil then return end
 	-- Show hint for MetaProgress doors, or for doors that were originally MetaProgress
 	if ProvokeMod.IsMetaProgressDoor( door ) then
+		if not ProvokeMod.HasAffordableOptions() then return end
 		ProvokeMod.RunState.NearestProvokableDoor = door
 		ProvokeMod.SpawnProvokeHint()
 		return
@@ -225,6 +226,15 @@ function ProvokeMod.GetVowMaxRank( vowName )
 		return #data.Ranks
 	end
 	return 0
+end
+
+-- Returns true if at least one provocation choice (Boon / Enhanced / Hammer)
+-- has a fear cost that fits within MaxTransientFear at the current greed level.
+-- When all three costs exceed the cap the provoke hint is suppressed.
+function ProvokeMod.HasAffordableOptions()
+	return ProvokeMod.GetFearCost( "RegularBoon"  ) <= config.MaxTransientFear
+	    or ProvokeMod.GetFearCost( "EnhancedBoon" ) <= config.MaxTransientFear
+	    or ProvokeMod.GetFearCost( "Hammer"        ) <= config.MaxTransientFear
 end
 
 -- ============================================================================
@@ -715,7 +725,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
 		CreateTextBox({
 			Id = screen.Components.Cancel.Id,
-			Text = "Enter Room",
+			Text = "Don't Provoke",
 			FontSize = 16,
 			Color = { 0.7, 0.7, 0.7, 0.9 },
 			Font = "P22UndergroundSCMedium",
