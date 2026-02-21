@@ -41,6 +41,11 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- Safety: always remove any active transient fear when leaving a room
 	ProvokeMod.RemoveTransientFear()
 
+	-- Clear provoked door state for the room being left. Door ObjectIds can be
+	-- reused by subsequent rooms; stale entries would cause natural Boon doors
+	-- to be misidentified as previously-provoked MetaProgress doors.
+	ProvokeMod.RunState.ProvokedDoors = {}
+
 	return base( currentRun, door )
 end, mod )
 
