@@ -40,6 +40,8 @@ function ProvokeMod.ResetRunState()
 		ProvokedDoors = {},
 		PendingFearCost = nil,
 		LastFearCost = nil,
+		ProvokeHintId = nil,
+		HintThreadActive = false,
 	}
 end
 
@@ -73,6 +75,122 @@ function ProvokeMod.IsMetaProgressDoor( door )
 		return false
 	end
 	return (door.RewardStoreName or door.Room.RewardStoreName) == "MetaProgress"
+end
+
+-- Find the first un-provoked MetaProgress exit in the current room.
+-- Returns the door object or nil if none found.
+-- Doors are stored in the global MapState.OfferedExitDoors (set by DoUnlockRoomExits).
+function ProvokeMod.FindProvokableDoor()
+	if MapState == nil or MapState.OfferedExitDoors == nil then
+		print("[ProvokeMod] FindProvokableDoor: MapState.OfferedExitDoors is nil")
+		return nil
+	end
+	local count = 0
+	for _, door in pairs( MapState.OfferedExitDoors ) do
+		count = count + 1
+		if ProvokeMod.IsMetaProgressDoor( door )
+			and not ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+			and door.ReadyToUse then
+			print("[ProvokeMod] FindProvokableDoor: found MetaProgress door " .. tostring(door.ObjectId))
+			return door
+		end
+	end
+	print("[ProvokeMod] FindProvokableDoor: checked " .. count .. " doors, none provokable")
+	return nil
+end
+
+-- Called after DoUnlockRoomExits completes and exits are ready to use.
+-- Starts the hotkey listener thread. Hint visibility is managed by OnShowUseButton
+-- (fires when the player walks within door interact-range).
+function ProvokeMod.OnExitsUnlocked()
+	print("[ProvokeMod] OnExitsUnlocked called")
+	if ProvokeMod.FindProvokableDoor() == nil then
+		return
+	end
+
+	ProvokeMod.RunState.HintThreadActive = true
+
+	local notifyName = "ProvokeMod__HotkeyPress"
+	thread( function()
+		while ProvokeMod.RunState.HintThreadActive do
+			NotifyOnInteractOrControlPressed({
+				Ids = {},
+				Names = { config.ProvokeHotkey or "Shout" },
+				Notify = notifyName,
+			})
+			waitUntil( notifyName )
+			if not ProvokeMod.RunState.HintThreadActive then
+				break
+			end
+
+			local provokableDoor = ProvokeMod.FindProvokableDoor()
+			if provokableDoor then
+				thread( function()
+					ProvokeMod.OpenProvocationScreen( provokableDoor )
+					if not ProvokeMod.RunState.ProvokedDoors[provokableDoor.ObjectId] then
+						ProvokeMod.RunState.ProvokedDoors[provokableDoor.ObjectId] = { Declined = true }
+					end
+					if ProvokeMod.FindProvokableDoor() == nil then
+						ProvokeMod.DespawnProvokeHint()
+					end
+				end)
+			end
+			wait( 0.5 )
+		end
+	end)
+end
+
+-- Called when the game shows a use prompt for an obstacle (player entered interact range).
+-- Shows the Provoke hint only when the relevant MetaProgress door is in range.
+function ProvokeMod.OnShowUseButton( objectId )
+	if MapState == nil or MapState.OfferedExitDoors == nil then return end
+	local door = MapState.OfferedExitDoors[objectId]
+	if door == nil then return end
+	if not ProvokeMod.IsMetaProgressDoor( door ) then return end
+	if ProvokeMod.RunState.ProvokedDoors[door.ObjectId] then return end
+	ProvokeMod.SpawnProvokeHint()
+end
+
+-- Show a "second line" hint below the door's {I} Proceed UsePrompt, matching
+-- the accept/gift button style used by boon/NPC interaction prompts.
+-- UsePrompt text appears at ~Y=1010 (ScreenHeight - BottomOffset(−10) - textOffset(80)).
+-- We position ours ~30px below that, so together they read as two stacked options.
+function ProvokeMod.SpawnProvokeHint()
+	if ProvokeMod.RunState.ProvokeHintId ~= nil then
+		return  -- already visible
+	end
+	-- NOTE: CreateScreenObstacle returns the obstacle ID directly (a number), not a table.
+	local textY = ScreenHeight - 38  -- ≈1042; just below the door's {I} Proceed at ≈1010
+	-- No separate InteractBacking — the game's existing backing for "Proceed" covers
+	-- this region so both prompts share one unified dark background.
+	local hintId = CreateScreenObstacle({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
+		X = ScreenCenterX,
+		Y = textY,
+	})
+	-- {SH} is the Shout/Call button glyph (confirmed in game localization)
+	CreateTextBox({
+		Id = hintId,
+		Text = "{SH} Provoke the Fates",
+		Font = "P22UndergroundSCHeavy",
+		FontSize = 22,
+		Color = { 1, 1, 1, 1 },
+		TextSymbolScale = 0.8,
+		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 5 },
+		OutlineThickness = 3, OutlineColor = { 0, 0, 0, 1 },
+		Justification = "Center",
+	})
+	ProvokeMod.RunState.ProvokeHintId = hintId
+end
+
+-- Remove the HUD hint and stop the background listener thread.
+function ProvokeMod.DespawnProvokeHint()
+	ProvokeMod.RunState.HintThreadActive = false
+	if ProvokeMod.RunState.ProvokeHintId then
+		Destroy({ Id = ProvokeMod.RunState.ProvokeHintId })
+		ProvokeMod.RunState.ProvokeHintId = nil
+	end
 end
 
 function ProvokeMod.GetVowMaxRank( vowName )
@@ -256,8 +374,40 @@ function ProvokeMod.TransformDoor( door, choiceType )
 	print("[ProvokeMod] Transformed door to " .. choiceType .. " (Fear: " .. fearCost .. ")")
 end
 
+-- Compute the animation name for a door's new reward icon from LootData.
+function ProvokeMod.GetDoorIconAnimName( door )
+	local room = door.Room
+	if room.ChosenRewardType == "Boon" and room.ForceLootName then
+		local lootData = LootData[room.ForceLootName]
+		if lootData then
+			if room.BoonRaritiesOverride and lootData.DoorUpgradedIcon then
+				return lootData.DoorUpgradedIcon
+			end
+			return lootData.DoorIcon or lootData.Icon
+		end
+	elseif room.ChosenRewardType == "WeaponUpgrade" then
+		local lootData = LootData["WeaponUpgrade"]
+		if lootData then
+			return lootData.DoorIcon or lootData.Icon
+		end
+	end
+	return nil
+end
+
 function ProvokeMod.RefreshDoorPreview( door )
-	-- Destroy existing preview icons
+	local newAnimName = ProvokeMod.GetDoorIconAnimName( door )
+
+	-- Prefer in-place update: updating the animation on an existing obstacle preserves
+	-- its material/color state set during room init, avoiding the white-silhouette bug.
+	if newAnimName and door.RewardPreviewIconIds and #door.RewardPreviewIconIds > 0 then
+		for _, iconId in ipairs( door.RewardPreviewIconIds ) do
+			SetAnimation({ DestinationId = iconId, Name = newAnimName })
+		end
+		door.RewardPreviewAnimName = newAnimName
+		return
+	end
+
+	-- Fallback: destroy and recreate (handles case where no icons exist yet).
 	if door.RewardPreviewIconIds then
 		for _, iconId in ipairs( door.RewardPreviewIconIds ) do
 			Destroy({ Id = iconId })
@@ -280,8 +430,8 @@ function ProvokeMod.RefreshDoorPreview( door )
 		end
 		door.AdditionalIcons = nil
 	end
-	-- Recreate using the game's own function
-	CreateDoorRewardPreview( door )
+	-- Pass explicit params so the Boon branch condition (chosenLootName ~= nil) is satisfied.
+	CreateDoorRewardPreview( door, door.Room.ChosenRewardType, door.Room.ForceLootName )
 end
 
 -- ============================================================================
@@ -296,29 +446,32 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
 
 	OnScreenOpened( screen )
-	HideCombatUI( screen.Name )
 
-	-- Background overlay
-	screen.Components.Background = CreateScreenComponent({
-		Name = "rectangle01",
-		Group = "Combat_Menu",
+	-- Ornate dialog frame. Narrow horizontally (X=0.62) to reduce excess blank width;
+	-- shift down 25px so the skull sits comfortably above the title.
+	local menuY = ScreenCenterY + 25
+	screen.Components.Frame = CreateScreenComponent({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = ScreenCenterY,
+		Y = menuY,
 	})
-	SetScale({ Id = screen.Components.Background.Id, Fraction = 10 })
-	SetColor({ Id = screen.Components.Background.Id, Color = { 0.090, 0.055, 0.157, 0.85 } })
+	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.78 })
+
+	local centerY = menuY
 
 	-- Title
 	screen.Components.TitleBacking = CreateScreenComponent({
 		Name = "BlankObstacle",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = 200,
+		Y = centerY - 200,
 	})
 	CreateTextBox({
 		Id = screen.Components.TitleBacking.Id,
 		Text = "Provoke the Fates",
-		FontSize = 34,
+		FontSize = 28,
 		Color = { 0.74, 0.63, 1.0, 1.0 },
 		Font = "P22UndergroundSCHeavy",
 		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
@@ -328,14 +481,14 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- Subtitle
 	screen.Components.Subtitle = CreateScreenComponent({
 		Name = "BlankObstacle",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = 250,
+		Y = centerY - 160,
 	})
 	CreateTextBox({
 		Id = screen.Components.Subtitle.Id,
 		Text = "Upgrade this reward. The Fates will retaliate.",
-		FontSize = 18,
+		FontSize = 15,
 		Color = { 0.75, 0.70, 0.85, 0.9 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
@@ -350,23 +503,24 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local canEnhanced = enhancedCost <= config.MaxTransientFear
 	local canHammer = hammerCost <= config.MaxTransientFear
 
-	local buttonY = 360
-	local buttonSpacing = 100
+	local buttonY = centerY - 90
+	local buttonSpacing = 74
 
 	-- Option 1: Regular Boon
 	screen.Components.RegularBoon = CreateScreenComponent({
 		Name = "ButtonDefault",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
 		Y = buttonY,
 	})
+	SetScaleX({ Id = screen.Components.RegularBoon.Id, Fraction = 1.25 })
 	screen.Components.RegularBoon.OnPressedFunctionName = "ProvokeMod__OnSelectRegularBoon"
 	screen.Components.RegularBoon.Door = door
 	screen.Components.RegularBoon.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.RegularBoon.Id,
 		Text = "Olympian Favor  (+" .. regularCost .. " Fear)",
-		FontSize = 22,
+		FontSize = 18,
 		Color = canRegular and { 1.0, 1.0, 1.0, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
@@ -378,17 +532,18 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- Option 2: Enhanced Boon
 	screen.Components.EnhancedBoon = CreateScreenComponent({
 		Name = "ButtonDefault",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
 		Y = buttonY + buttonSpacing,
 	})
+	SetScaleX({ Id = screen.Components.EnhancedBoon.Id, Fraction = 1.25 })
 	screen.Components.EnhancedBoon.OnPressedFunctionName = "ProvokeMod__OnSelectEnhancedBoon"
 	screen.Components.EnhancedBoon.Door = door
 	screen.Components.EnhancedBoon.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.EnhancedBoon.Id,
 		Text = "Exalted Favor  (+" .. enhancedCost .. " Fear)",
-		FontSize = 22,
+		FontSize = 18,
 		Color = canEnhanced and { 1.0, 0.85, 0.45, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
@@ -400,17 +555,18 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- Option 3: Hammer
 	screen.Components.Hammer = CreateScreenComponent({
 		Name = "ButtonDefault",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
 		Y = buttonY + buttonSpacing * 2,
 	})
+	SetScaleX({ Id = screen.Components.Hammer.Id, Fraction = 1.25 })
 	screen.Components.Hammer.OnPressedFunctionName = "ProvokeMod__OnSelectHammer"
 	screen.Components.Hammer.Door = door
 	screen.Components.Hammer.Screen = screen
 	CreateTextBox({
 		Id = screen.Components.Hammer.Id,
 		Text = "Artificer's Design  (+" .. hammerCost .. " Fear)",
-		FontSize = 22,
+		FontSize = 18,
 		Color = canHammer and { 1.0, 0.47, 0.20, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
@@ -419,20 +575,22 @@ function ProvokeMod.OpenProvocationScreen( door )
 		UseableOff({ Id = screen.Components.Hammer.Id })
 	end
 
-	-- Cancel button
+	-- Enter Room button — bound to both Cancel and Confirm so the player can
+	-- dismiss with a single quick press of either back or the interact button.
 	screen.Components.Cancel = CreateScreenComponent({
 		Name = "ButtonDefault",
-		Group = "Combat_Menu",
+		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = buttonY + buttonSpacing * 3 + 30,
+		Y = buttonY + buttonSpacing * 3,
 	})
+	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
 	screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
 	screen.Components.Cancel.Screen = screen
-	screen.Components.Cancel.ControlHotkey = "Cancel"
+	screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
 	CreateTextBox({
 		Id = screen.Components.Cancel.Id,
-		Text = "Keep Original Reward",
-		FontSize = 18,
+		Text = "Enter Room",
+		FontSize = 16,
 		Color = { 0.7, 0.7, 0.7, 0.9 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
@@ -445,7 +603,6 @@ function ProvokeMod.CloseProvocationScreen( screen )
 	OnScreenCloseStarted( screen )
 	CloseScreen( GetAllIds( screen.Components ), 0.1, screen )
 	OnScreenCloseFinished( screen )
-	ShowCombatUI( screen.Name )
 end
 
 -- ============================================================================
@@ -551,6 +708,10 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 			end
 		end)
 	end
+
+	-- Hint spawning is handled in OnExitsUnlocked (triggered by DoUnlockRoomExits hook),
+	-- which fires after the encounter ends and doors have ReadyToUse = true.
+	print("[ProvokeMod] OnRoomStart complete")
 end
 
 -- Called from EndEncounterEffects wrap before the base function

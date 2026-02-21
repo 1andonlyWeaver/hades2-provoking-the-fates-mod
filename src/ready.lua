@@ -25,37 +25,7 @@ modutil.mod.Path.Wrap( "KillHero", function( base, victim, triggerArgs )
 end, mod )
 
 -- ============================================================================
--- Hook 3: Intercept door interaction for MetaProgress doors
--- ============================================================================
-modutil.mod.Path.Wrap( "AttemptUseDoor", function( base, door, args )
-	-- Only intercept MetaProgress doors that haven't been handled yet
-	if ProvokeMod.IsMetaProgressDoor( door )
-		and not ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
-		and door.ReadyToUse
-		and CheckRoomExitsReady( CurrentRun.CurrentRoom )
-		and CheckSpecialDoorRequirement( door ) == nil
-		and not door.InUse
-		and not door.EncounterCost
-	then
-		-- Open the provocation screen in a thread (it blocks until closed)
-		thread( function()
-			ProvokeMod.OpenProvocationScreen( door )
-
-			-- After screen closes: if the player didn't provoke, mark declined
-			-- so we don't prompt again on the same door
-			if not ProvokeMod.RunState.ProvokedDoors[door.ObjectId] then
-				ProvokeMod.RunState.ProvokedDoors[door.ObjectId] = { Declined = true }
-			end
-		end)
-		return -- Don't call base; player hasn't chosen to enter yet
-	end
-
-	-- Normal door use (already provoked, declined, or non-MetaProgress)
-	return base( door, args )
-end, mod )
-
--- ============================================================================
--- Hook 4: Prepare transient fear on room exit
+-- Hook 3: Prepare transient fear on room exit
 -- ============================================================================
 modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- If this door was provoked, queue fear for the next room
@@ -65,6 +35,9 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 		ProvokeMod.RunState.LastFearCost = provokeData.FearCost
 	end
 
+	-- Remove hint and kill background listener before leaving
+	ProvokeMod.DespawnProvokeHint()
+
 	-- Safety: always remove any active transient fear when leaving a room
 	ProvokeMod.RemoveTransientFear()
 
@@ -72,7 +45,7 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 end, mod )
 
 -- ============================================================================
--- Hook 5: Inject transient fear on room start
+-- Hook 4: Inject transient fear on room start
 -- ============================================================================
 modutil.mod.Path.Wrap( "StartRoom", function( base, currentRun, currentRoom )
 	-- Inject fear BEFORE base, because base blocks through the entire encounter
@@ -82,7 +55,7 @@ modutil.mod.Path.Wrap( "StartRoom", function( base, currentRun, currentRoom )
 end, mod )
 
 -- ============================================================================
--- Hook 6: Remove transient fear on encounter end
+-- Hook 5: Remove transient fear on encounter end
 -- ============================================================================
 modutil.mod.Path.Wrap( "EndEncounterEffects", function( base, currentRun, currentRoom, currentEncounter )
 	-- Remove transient fear BEFORE base processes rewards/unlocks
@@ -90,4 +63,23 @@ modutil.mod.Path.Wrap( "EndEncounterEffects", function( base, currentRun, curren
 	ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 
 	return base( currentRun, currentRoom, currentEncounter )
+end, mod )
+
+-- ============================================================================
+-- Hook 6: Start hotkey listener after exit doors are unlocked and ready
+-- ============================================================================
+modutil.mod.Path.Wrap( "DoUnlockRoomExits", function( base, ... )
+	local result = base( ... )
+	-- Doors now have ReadyToUse = true and MapState.OfferedExitDoors is populated
+	ProvokeMod.OnExitsUnlocked()
+	return result
+end, mod )
+
+-- ============================================================================
+-- Hook 7: Show/hide provoke hint based on door proximity (UsePrompt visibility)
+-- ============================================================================
+modutil.mod.Path.Wrap( "ShowUseButton", function( base, objectId, useTarget )
+	local result = base( objectId, useTarget )
+	ProvokeMod.OnShowUseButton( objectId )
+	return result
 end, mod )
