@@ -38,6 +38,8 @@ function ProvokeMod.ResetRunState()
 		ProvokeHintId = nil,
 		HintThreadActive = false,
 		NearestProvokableDoor = nil,
+		RoomEncounterCount = 0,
+		RoomEncountersCompleted = 0,
 	}
 end
 
@@ -801,6 +803,11 @@ end
 
 -- Called from StartRoom wrap after the room initializes
 function ProvokeMod.OnRoomStart( currentRun, currentRoom )
+	-- Track how many encounters this room has so OnEncounterEnd only removes fear
+	-- after the last one completes (guards against multi-encounter rooms).
+	ProvokeMod.RunState.RoomEncounterCount = (currentRoom.Encounters and #currentRoom.Encounters) or 1
+	ProvokeMod.RunState.RoomEncountersCompleted = 0
+
 	if ProvokeMod.RunState.PendingFearCost then
 		local fearCost = ProvokeMod.RunState.PendingFearCost
 		ProvokeMod.RunState.PendingFearCost = nil
@@ -877,7 +884,12 @@ end
 
 -- Called from EndEncounterEffects wrap before the base function
 function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
-	ProvokeMod.RemoveTransientFear()
+	ProvokeMod.RunState.RoomEncountersCompleted = (ProvokeMod.RunState.RoomEncountersCompleted or 0) + 1
+	local expected = ProvokeMod.RunState.RoomEncounterCount or 1
+	if ProvokeMod.RunState.RoomEncountersCompleted >= expected then
+		ProvokeMod.RemoveTransientFear()
+	end
+	-- LeaveRoom calls RemoveTransientFear unconditionally as a final safety net.
 end
 
 -- Helper for TableLength since the game may not provide one
