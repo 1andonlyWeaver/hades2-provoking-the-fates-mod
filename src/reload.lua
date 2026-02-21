@@ -12,8 +12,10 @@
 ProvokeMod = ProvokeMod or {}
 
 -- Vows eligible for Transient Fear injection.
--- Excludes BossDifficultyShrineUpgrade (swaps entire boss encounters mid-room)
--- and BoonSkipShrineUpgrade (removes boon invulnerability frames).
+-- Only direct combat vows: enemy stat modifiers and spawn mechanics.
+-- Excluded vows have no meaningful effect during a single combat room:
+--   ShopPrices, MinibossCount, BiomeSpeed, HealingReduction,
+--   BoonManaReserve, LimitGrasp, BanUnpickedBoons
 ProvokeMod.EligibleVows = {
 	"EnemyDamageShrineUpgrade",
 	"EnemyHealthShrineUpgrade",
@@ -23,13 +25,6 @@ ProvokeMod.EligibleVows = {
 	"NextBiomeEnemyShrineUpgrade",
 	"EnemyRespawnShrineUpgrade",
 	"EnemyEliteShrineUpgrade",
-	"HealingReductionShrineUpgrade",
-	"ShopPricesShrineUpgrade",
-	"MinibossCountShrineUpgrade",
-	"BiomeSpeedShrineUpgrade",
-	"LimitGraspShrineUpgrade",
-	"BoonManaReserveShrineUpgrade",
-	"BanUnpickedBoonsShrineUpgrade",
 }
 
 function ProvokeMod.ResetRunState()
@@ -252,27 +247,28 @@ function ProvokeMod.SelectTransientVows( fearCost )
 		end
 	end
 
+	-- Sequential fill: max out one vow before spilling into the next
 	while remaining > 0 and #candidatePool > 0 do
 		local idx = RandomInt( 1, #candidatePool )
 		local vowName = candidatePool[idx]
+		table.remove( candidatePool, idx )
 
-		injections[vowName] = (injections[vowName] or 0) + 1
-		remaining = remaining - 1
-
-		-- Check if this vow has now reached its max injectable rank
-		local projectedRank = (GameState.ShrineUpgrades[vowName] or 0) + injections[vowName]
+		local currentRank = (GameState.ShrineUpgrades[vowName] or 0) + (injections[vowName] or 0)
 		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-		if projectedRank >= maxRank then
-			table.remove( candidatePool, idx )
+		local toAdd = math.min( maxRank - currentRank, remaining )
 
-			-- If pool emptied, try to refill with still-available vows
-			if #candidatePool == 0 then
-				for _, vName in ipairs( ProvokeMod.EligibleVows ) do
-					local cRank = (GameState.ShrineUpgrades[vName] or 0) + (injections[vName] or 0)
-					local mRank = ProvokeMod.GetVowMaxRank( vName )
-					if cRank < mRank then
-						table.insert( candidatePool, vName )
-					end
+		if toAdd > 0 then
+			injections[vowName] = (injections[vowName] or 0) + toAdd
+			remaining = remaining - toAdd
+		end
+
+		-- If pool emptied and fear remains, refill with still-available vows
+		if remaining > 0 and #candidatePool == 0 then
+			for _, vName in ipairs( ProvokeMod.EligibleVows ) do
+				local cRank = (GameState.ShrineUpgrades[vName] or 0) + (injections[vName] or 0)
+				local mRank = ProvokeMod.GetVowMaxRank( vName )
+				if cRank < mRank then
+					table.insert( candidatePool, vName )
 				end
 			end
 		end
@@ -303,7 +299,11 @@ function ProvokeMod.InjectTransientFear( fearCost )
 	end
 	ProvokeMod.RunState.TransientFearActive = true
 
-	print("[ProvokeMod] Injected Transient Fear: " .. fearCost .. " points across " .. ProvokeMod.TableLength( injections ) .. " vows")
+	local vowDetails = {}
+	for vowName, addedRanks in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
+		table.insert( vowDetails, vowName .. " +" .. addedRanks.AddedRanks .. " (was " .. addedRanks.OriginalRank .. ")" )
+	end
+	print("[ProvokeMod] Injected Transient Fear: " .. fearCost .. " points across " .. ProvokeMod.TableLength( injections ) .. " vows: " .. table.concat( vowDetails, ", " ))
 end
 
 -- Remove all transient vows, restoring original ranks. Idempotent.
