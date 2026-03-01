@@ -29,7 +29,8 @@ end, mod )
 -- ============================================================================
 modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- If this door was provoked, queue fear for the next room
-	local provokeData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+	local doorId = door and door.ObjectId
+	local provokeData = ProvokeMod.RunState.ProvokedDoors[doorId]
 	if provokeData and provokeData.Provoked then
 		ProvokeMod.RunState.PendingFearCost = provokeData.FearCost
 		ProvokeMod.RunState.LastFearCost = provokeData.FearCost
@@ -45,6 +46,15 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- reused by subsequent rooms; stale entries would cause natural Boon doors
 	-- to be misidentified as previously-provoked MetaProgress doors.
 	ProvokeMod.RunState.ProvokedDoors = {}
+
+	-- Restore RewardStoreName before base pushes CurrentRoom into RoomHistory,
+	-- so CalcMetaProgressRatio counts this provoked room as MetaProgress in
+	-- all future ratio calculations.
+	local currentRoom = currentRun and currentRun.CurrentRoom
+	if currentRoom and currentRoom._OriginalRewardStoreName ~= nil then
+		currentRoom.RewardStoreName = currentRoom._OriginalRewardStoreName
+		currentRoom._OriginalRewardStoreName = nil
+	end
 
 	return base( currentRun, door )
 end, mod )
@@ -73,8 +83,18 @@ end, mod )
 -- ============================================================================
 -- Hook 6: Start hotkey listener after exit doors are unlocked and ready
 -- ============================================================================
-modutil.mod.Path.Wrap( "DoUnlockRoomExits", function( base, ... )
-	local result = base( ... )
+modutil.mod.Path.Wrap( "DoUnlockRoomExits", function( base, run, room )
+	-- Temporarily restore RewardStoreName so ChooseNextRewardStore (called inside
+	-- base) computes the correct MetaProgress ratio for the next room's doors.
+	local savedStoreName = nil
+	if room ~= nil and room._OriginalRewardStoreName ~= nil then
+		savedStoreName = room.RewardStoreName
+		room.RewardStoreName = room._OriginalRewardStoreName
+	end
+	local result = base( run, room )
+	if savedStoreName ~= nil then
+		room.RewardStoreName = savedStoreName
+	end
 	-- Doors now have ReadyToUse = true and MapState.OfferedExitDoors is populated
 	ProvokeMod.OnExitsUnlocked()
 	return result

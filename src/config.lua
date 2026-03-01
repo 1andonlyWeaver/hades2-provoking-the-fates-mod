@@ -14,9 +14,6 @@ return {
   EnableGreed = true;
   GreedPenalty_PerUse = 1;
 
-  -- Safety limits
-  MaxTransientFear = 19;
-
   -- Control name for the door-adjacent provocation hotkey.
   -- This is looked up in the game's input system; the exact valid name needs
   -- in-game verification. Try "Shout", "Rush", or "Interact" if the default fails.

@@ -165,7 +165,6 @@ function ProvokeMod.OnShowUseButton( objectId )
 	if door == nil then return end
 	-- Show hint for MetaProgress doors, or for doors that were originally MetaProgress
 	if ProvokeMod.IsMetaProgressDoor( door ) then
-		if not ProvokeMod.HasAffordableOptions() then return end
 		ProvokeMod.RunState.NearestProvokableDoor = door
 		ProvokeMod.SpawnProvokeHint()
 		return
@@ -228,6 +227,20 @@ function ProvokeMod.DespawnProvokeHint()
 	end
 end
 
+
+-- ============================================================================
+-- Section 3: Transient Fear Engine
+-- ============================================================================
+
+-- Vows that represent a ratio or probability bounded by 100%.
+-- These are capped at their defined max rank during fear injection.
+-- Additive bonuses (damage, health, count, speed, etc.) are not listed here
+-- and can be pushed above their normal maximum.
+ProvokeMod.CappedVows = {
+	NextBiomeEnemyShrineUpgrade = true,  -- fraction of foes (0–100%)
+	EnemyRespawnShrineUpgrade   = true,  -- respawn probability (0–100%)
+}
+
 function ProvokeMod.GetVowMaxRank( vowName )
 	local data = MetaUpgradeData[vowName]
 	if data and data.Ranks then
@@ -236,78 +249,32 @@ function ProvokeMod.GetVowMaxRank( vowName )
 	return 0
 end
 
--- Returns true if at least one provocation choice (Boon / Enhanced / Hammer)
--- has a fear cost that fits within MaxTransientFear at the current greed level.
--- When all three costs exceed the cap the provoke hint is suppressed.
-function ProvokeMod.HasAffordableOptions()
-	return ProvokeMod.GetFearCost( "RegularBoon"  ) <= config.MaxTransientFear
-	    or ProvokeMod.GetFearCost( "EnhancedBoon" ) <= config.MaxTransientFear
-	    or ProvokeMod.GetFearCost( "Hammer"        ) <= config.MaxTransientFear
-end
-
--- ============================================================================
--- Section 3: Transient Fear Engine
--- ============================================================================
-
 -- Select which vows to bump and by how much.
--- Each fear point = 1 rank increment on a random eligible vow.
+-- Each fear point = 1 rank increment on a randomly chosen eligible vow.
+-- Uncapped vows can exceed their normal maximum rank.
+-- Capped vows (ratio/probability) are held at their defined max rank.
 -- Returns a map: vowName -> additionalRanks
 function ProvokeMod.SelectTransientVows( fearCost )
 	local injections = {}
-	local remaining = fearCost
 
-	-- Build candidate pool: vows not yet at max rank
-	local candidatePool = {}
-	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-		local currentRank = GameState.ShrineUpgrades[vowName] or 0
-		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-		if currentRank < maxRank then
-			table.insert( candidatePool, vowName )
-		end
-	end
-
-	-- Spillover: if all vows maxed, look for rank-0 vows
-	if #candidatePool == 0 then
+	-- Distribute each fear point to a randomly chosen eligible vow.
+	-- Rebuild the pool for each point so capped vows are excluded once full.
+	for i = 1, fearCost do
+		local pool = {}
 		for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-			local currentRank = GameState.ShrineUpgrades[vowName] or 0
-			if currentRank == 0 then
-				table.insert( candidatePool, vowName )
-			end
-		end
-	end
-
-	-- Final fallback: use all eligible vows
-	if #candidatePool == 0 then
-		for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-			table.insert( candidatePool, vowName )
-		end
-	end
-
-	-- Sequential fill: max out one vow before spilling into the next
-	while remaining > 0 and #candidatePool > 0 do
-		local idx = RandomInt( 1, #candidatePool )
-		local vowName = candidatePool[idx]
-		table.remove( candidatePool, idx )
-
-		local currentRank = (GameState.ShrineUpgrades[vowName] or 0) + (injections[vowName] or 0)
-		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-		local toAdd = math.min( maxRank - currentRank, remaining )
-
-		if toAdd > 0 then
-			injections[vowName] = (injections[vowName] or 0) + toAdd
-			remaining = remaining - toAdd
-		end
-
-		-- If pool emptied and fear remains, refill with still-available vows
-		if remaining > 0 and #candidatePool == 0 then
-			for _, vName in ipairs( ProvokeMod.EligibleVows ) do
-				local cRank = (GameState.ShrineUpgrades[vName] or 0) + (injections[vName] or 0)
-				local mRank = ProvokeMod.GetVowMaxRank( vName )
-				if cRank < mRank then
-					table.insert( candidatePool, vName )
+			if ProvokeMod.CappedVows[vowName] then
+				local current = (GameState.ShrineUpgrades[vowName] or 0) + (injections[vowName] or 0)
+				if current < ProvokeMod.GetVowMaxRank( vowName ) then
+					table.insert( pool, vowName )
 				end
+			else
+				table.insert( pool, vowName )
 			end
 		end
+		if #pool == 0 then break end
+		local idx = RandomInt( 1, #pool )
+		local vowName = pool[idx]
+		injections[vowName] = (injections[vowName] or 0) + 1
 	end
 
 	return injections
@@ -413,6 +380,10 @@ function ProvokeMod.TransformDoor( door, choiceType )
 		door.RewardStoreName = "RunProgress"
 	end
 
+	-- Mark the room object so DoUnlockRoomExits and LeaveRoom can restore
+	-- RewardStoreName for CalcMetaProgressRatio without affecting reward delivery.
+	room._OriginalRewardStoreName = provokeData.OriginalRewardStoreName
+
 	-- Track provocation
 	ProvokeMod.RunState.ProvocationCount = ProvokeMod.RunState.ProvocationCount + 1
 	ProvokeMod.RunState.ProvokedDoors[door.ObjectId] = provokeData
@@ -442,6 +413,7 @@ function ProvokeMod.UnTransformDoor( door )
 
 	-- Clear the boon rarity override (set by EnhancedBoon; nil for other types)
 	room.BoonRaritiesOverride = nil
+	room._OriginalRewardStoreName = nil
 
 	-- Decrement the greed counter, clamped to 0
 	ProvokeMod.RunState.ProvocationCount = math.max( 0, ProvokeMod.RunState.ProvocationCount - 1 )
@@ -590,10 +562,6 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", costOffset )
 	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       costOffset )
 
-	local canRegular  = regularCost  <= config.MaxTransientFear
-	local canEnhanced = enhancedCost <= config.MaxTransientFear
-	local canHammer   = hammerCost   <= config.MaxTransientFear
-
 	local buttonY       = centerY - 90
 	local buttonSpacing = 74
 
@@ -616,13 +584,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Id = screen.Components.RegularBoon.Id,
 		Text = regularLabel,
 		FontSize = 18,
-		Color = canRegular and { 1.0, 1.0, 1.0, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
+		Color = { 1.0, 1.0, 1.0, 1.0 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
-	if not canRegular then
-		UseableOff({ Id = screen.Components.RegularBoon.Id })
-	end
 
 	-- Option 2: Enhanced Boon
 	local enhancedLabel = "Enhanced Boon  (+" .. enhancedCost .. " Fear)"
@@ -643,13 +608,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Id = screen.Components.EnhancedBoon.Id,
 		Text = enhancedLabel,
 		FontSize = 18,
-		Color = canEnhanced and { 1.0, 0.85, 0.45, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
+		Color = { 1.0, 0.85, 0.45, 1.0 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
-	if not canEnhanced then
-		UseableOff({ Id = screen.Components.EnhancedBoon.Id })
-	end
 
 	-- Option 3: Hammer
 	local hammerLabel = "Daedalus Hammer  (+" .. hammerCost .. " Fear)"
@@ -670,13 +632,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Id = screen.Components.Hammer.Id,
 		Text = hammerLabel,
 		FontSize = 18,
-		Color = canHammer and { 1.0, 0.47, 0.20, 1.0 } or { 0.4, 0.4, 0.4, 0.6 },
+		Color = { 1.0, 0.47, 0.20, 1.0 },
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
-	if not canHammer then
-		UseableOff({ Id = screen.Components.Hammer.Id })
-	end
 
 	if isReprovoke then
 		-- Option 4 (re-provoke only): Revert to Original
@@ -945,10 +904,21 @@ function ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
 	local metaData = MetaUpgradeData and MetaUpgradeData[vowName]
 	if not metaData or not metaData.Ranks then return nil end
 
-	local rankData = metaData.Ranks[newRank]
-	if not rankData then return nil end
+	local maxRank = #metaData.Ranks
+	local changeValue
 
-	local changeValue = rankData.ChangeValue
+	if newRank <= maxRank then
+		local rankData = metaData.Ranks[newRank]
+		if not rankData then return nil end
+		changeValue = rankData.ChangeValue
+	else
+		-- Extrapolate linearly above max using the per-rank delta
+		local lastData = metaData.Ranks[maxRank]
+		if not lastData then return nil end
+		local prevData = metaData.Ranks[maxRank - 1]
+		local deltaPerRank = prevData and (lastData.ChangeValue - prevData.ChangeValue) or lastData.ChangeValue
+		changeValue = lastData.ChangeValue + (newRank - maxRank) * deltaPerRank
+	end
 
 	-- BiomeSpeedShrineUpgrade: seconds → "M:SS"
 	if vowName == "BiomeSpeedShrineUpgrade" then
@@ -968,26 +938,25 @@ function ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
 	return math.floor( display + 0.5 )
 end
 
--- Return "Vow of X: +Y% description" for one active transient vow entry.
+-- Return "+Y% description" for one active transient vow entry (no vow title).
 function ProvokeMod.GetVowValueText( vowName, vowData )
-	local displayName = ProvokeMod.VowDisplayNames[vowName] or vowName
 	local newRank = ( vowData.OriginalRank or 0 ) + ( vowData.AddedRanks or 0 )
 	local displayValue = ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
 
 	if displayValue == nil then
-		return displayName
+		return ProvokeMod.VowDisplayNames[vowName] or vowName
 	end
 
 	-- BiomeSpeedShrineUpgrade display value is already a formatted string
 	if vowName == "BiomeSpeedShrineUpgrade" then
-		return displayName .. ": " .. displayValue .. " biome limit"
+		return displayValue .. " biome limit"
 	end
 
 	local fmt = ProvokeMod.VowValueFormats[vowName]
 	if fmt then
-		return displayName .. ": " .. string.format( fmt, displayValue )
+		return string.format( fmt, displayValue )
 	end
-	return displayName
+	return ProvokeMod.VowDisplayNames[vowName] or vowName
 end
 
 -- Build a sorted array of vow effect description strings.
