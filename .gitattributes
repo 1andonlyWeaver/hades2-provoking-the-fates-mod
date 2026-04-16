@@ -1,0 +1,3 @@
+# Normalize all text files to LF on check-in and checkout. Git auto-detects
+# binary files and leaves them alone.
+* text=auto eol=lf
