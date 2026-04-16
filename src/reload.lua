@@ -30,10 +30,12 @@ ProvokeMod.EligibleVows = {
 function ProvokeMod.ResetRunState()
 	ProvokeMod.RunState = {
 		ProvocationCount = 0,
-		ActiveTransientVows = {},
+		ProvokedCounts = { RegularBoon = 0, EnhancedBoon = 0, Hammer = 0 },
+		ActiveFearStacks = {},          -- list of provocations still decaying across rooms
+		ActiveTransientVows = {},       -- merged injection currently applied to ShrineUpgrades
 		TransientFearActive = false,
+		FearHUDIconIds = nil,           -- HUD cluster showing active vows this room
 		ProvokedDoors = {},
-		PendingFearCost = nil,
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,
@@ -52,8 +54,11 @@ end
 -- Section 2: Utility Functions
 -- ============================================================================
 
-function ProvokeMod.GetFearCost( choiceType, countOffset )
-	countOffset = countOffset or 0
+-- Fear cost for a provocation. `effectiveCount` is the 1-indexed position this
+-- provocation will occupy among same-type provocations (1 = first ever of that
+-- type). If nil, defaults to "next available slot" = current ProvokedCounts + 1.
+-- Formula: base + penalty * effectiveCount².
+function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
 		baseCost = config.Cost_RegularBoon
@@ -62,10 +67,14 @@ function ProvokeMod.GetFearCost( choiceType, countOffset )
 	elseif choiceType == "Hammer" then
 		baseCost = config.Cost_Hammer
 	end
+	if effectiveCount == nil then
+		local typeCount = (ProvokeMod.RunState.ProvokedCounts and ProvokeMod.RunState.ProvokedCounts[choiceType]) or 0
+		effectiveCount = typeCount + 1
+	end
+	effectiveCount = math.max( 1, effectiveCount )
 	local greedBonus = 0
 	if config.EnableGreed then
-		local effectiveCount = math.max( 0, ProvokeMod.RunState.ProvocationCount + countOffset )
-		greedBonus = (2^effectiveCount) * config.GreedPenalty_PerUse
+		greedBonus = (effectiveCount * effectiveCount) * config.GreedPenalty_PerUse
 	end
 	return baseCost + greedBonus
 end
@@ -88,6 +97,16 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	return (door.RewardStoreName or door.Room.RewardStoreName) == "MetaProgress"
 end
 
+-- Check if a door is provokable: either it's currently a MetaProgress door,
+-- or it was originally MetaProgress before being transformed by a provocation.
+function ProvokeMod.IsProvokableDoor( door )
+	if ProvokeMod.IsMetaProgressDoor( door ) then
+		return true
+	end
+	local pd = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+	return pd ~= nil and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress"
+end
+
 -- Find the first MetaProgress exit in the current room (provoked or not).
 -- Also matches doors that were originally MetaProgress but have been transformed
 -- (TransformDoor changes door.RewardStoreName away from "MetaProgress").
@@ -101,59 +120,30 @@ function ProvokeMod.FindProvokableDoor()
 	local count = 0
 	for _, door in pairs( MapState.OfferedExitDoors ) do
 		count = count + 1
-		if door.ReadyToUse then
-			if ProvokeMod.IsMetaProgressDoor( door ) then
-				print("[ProvokeMod] FindProvokableDoor: found MetaProgress door " .. tostring(door.ObjectId))
-				return door
-			end
-			-- Also match doors that were originally MetaProgress before transformation
-			local pd = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
-			if pd and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress" then
-				print("[ProvokeMod] FindProvokableDoor: found provoked MetaProgress door " .. tostring(door.ObjectId))
-				return door
-			end
+		if door.ReadyToUse and ProvokeMod.IsProvokableDoor( door ) then
+			print("[ProvokeMod] FindProvokableDoor: found provokable door " .. tostring(door.ObjectId))
+			return door
 		end
 	end
 	print("[ProvokeMod] FindProvokableDoor: checked " .. count .. " doors, none provokable")
 	return nil
 end
 
+-- Notification name used by the long-press gate inside the LeaveRoom wrap.
+ProvokeMod.HoldReleaseNotifyName = "ProvokeMod__HoldRelease"
+
 -- Called after DoUnlockRoomExits completes and exits are ready to use.
--- Starts the hotkey listener thread. Hint visibility is managed by OnShowUseButton
--- (fires when the player walks within door interact-range).
+-- With long-press Interact, no hotkey-listener thread is needed — the hold vs
+-- tap detection runs inside the LeaveRoom wrap itself. This function exists
+-- only to track whether a provokable door is present so SpawnProvokeHint is
+-- driven by OnShowUseButton (proximity) without an external listener.
 function ProvokeMod.OnExitsUnlocked()
 	print("[ProvokeMod] OnExitsUnlocked called")
-	if ProvokeMod.FindProvokableDoor() == nil then
-		return
+	-- Mark the hint thread as active so DespawnProvokeHint can clear proximity
+	-- state on room exit; the flag is legacy but still guards the hint lifecycle.
+	if ProvokeMod.FindProvokableDoor() ~= nil then
+		ProvokeMod.RunState.HintThreadActive = true
 	end
-
-	ProvokeMod.RunState.HintThreadActive = true
-
-	local notifyName = "ProvokeMod__HotkeyPress"
-	thread( function()
-		while ProvokeMod.RunState.HintThreadActive do
-			NotifyOnInteractOrControlPressed({
-				Ids = {},
-				Names = { config.ProvokeHotkey or "Shout" },
-				Notify = notifyName,
-			})
-			waitUntil( notifyName )
-			if not ProvokeMod.RunState.HintThreadActive then
-				break
-			end
-
-			local provokableDoor = ProvokeMod.RunState.NearestProvokableDoor or ProvokeMod.FindProvokableDoor()
-			if provokableDoor then
-				thread( function()
-					ProvokeMod.OpenProvocationScreen( provokableDoor )
-					if ProvokeMod.FindProvokableDoor() == nil then
-						ProvokeMod.DespawnProvokeHint()
-					end
-				end)
-			end
-			wait( 0.5 )
-		end
-	end)
 end
 
 -- Called when the game shows a use prompt for an obstacle (player entered interact range).
@@ -163,14 +153,7 @@ function ProvokeMod.OnShowUseButton( objectId )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
 	if door == nil then return end
-	-- Show hint for MetaProgress doors, or for doors that were originally MetaProgress
-	if ProvokeMod.IsMetaProgressDoor( door ) then
-		ProvokeMod.RunState.NearestProvokableDoor = door
-		ProvokeMod.SpawnProvokeHint()
-		return
-	end
-	local pd = ProvokeMod.RunState.ProvokedDoors[objectId]
-	if pd and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress" then
+	if ProvokeMod.IsProvokableDoor( door ) then
 		ProvokeMod.RunState.NearestProvokableDoor = door
 		ProvokeMod.SpawnProvokeHint()
 	end
@@ -203,10 +186,10 @@ function ProvokeMod.SpawnProvokeHint()
 		X = ScreenCenterX,
 		Y = textY,
 	})
-	-- {SH} is the Shout/Call button glyph (confirmed in game localization)
+	-- {!I} asks the game's glyph system for the Interact button icon.
 	CreateTextBox({
 		Id = hintId,
-		Text = "{SH} Provoke the Fates",
+		Text = "Hold {!I} to Provoke the Fates",
 		Font = "P22UndergroundSCHeavy",
 		FontSize = 22,
 		Color = { 1, 1, 1, 1 },
@@ -218,7 +201,8 @@ function ProvokeMod.SpawnProvokeHint()
 	ProvokeMod.RunState.ProvokeHintId = hintId
 end
 
--- Remove the HUD hint and stop the background listener thread.
+-- Remove the HUD hint. No listener thread to wake — long-press detection now
+-- lives in the LeaveRoom wrap, not a parallel thread.
 function ProvokeMod.DespawnProvokeHint()
 	ProvokeMod.RunState.HintThreadActive = false
 	if ProvokeMod.RunState.ProvokeHintId then
@@ -232,15 +216,6 @@ end
 -- Section 3: Transient Fear Engine
 -- ============================================================================
 
--- Vows that represent a ratio or probability bounded by 100%.
--- These are capped at their defined max rank during fear injection.
--- Additive bonuses (damage, health, count, speed, etc.) are not listed here
--- and can be pushed above their normal maximum.
-ProvokeMod.CappedVows = {
-	NextBiomeEnemyShrineUpgrade = true,  -- fraction of foes (0–100%)
-	EnemyRespawnShrineUpgrade   = true,  -- respawn probability (0–100%)
-}
-
 function ProvokeMod.GetVowMaxRank( vowName )
 	local data = MetaUpgradeData[vowName]
 	if data and data.Ranks then
@@ -249,71 +224,224 @@ function ProvokeMod.GetVowMaxRank( vowName )
 	return 0
 end
 
--- Select which vows to bump and by how much.
--- Each fear point = 1 rank increment on a randomly chosen eligible vow.
--- Uncapped vows can exceed their normal maximum rank.
--- Capped vows (ratio/probability) are held at their defined max rank.
--- Returns a map: vowName -> additionalRanks
-function ProvokeMod.SelectTransientVows( fearCost )
-	local injections = {}
+-- Returns true when every eligible vow is already at its native max rank.
+-- The caller uses this to block a provocation with a "Fates are satisfied"
+-- rejection instead of charging Fear that cannot land.
+function ProvokeMod.AllVowsFull()
+	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		if current < ProvokeMod.GetVowMaxRank( vowName ) then
+			return false
+		end
+	end
+	return true
+end
 
-	-- Distribute each fear point to a randomly chosen eligible vow.
-	-- Rebuild the pool for each point so capped vows are excluded once full.
-	for i = 1, fearCost do
-		local pool = {}
-		for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-			if ProvokeMod.CappedVows[vowName] then
-				local current = (GameState.ShrineUpgrades[vowName] or 0) + (injections[vowName] or 0)
-				if current < ProvokeMod.GetVowMaxRank( vowName ) then
-					table.insert( pool, vowName )
-				end
-			else
-				table.insert( pool, vowName )
+-- Pick 1–2 "themed" vows for a provocation and concentrate the Fear on them.
+-- At or below ThemedSplitThreshold Fear, pick 1 vow and give it all the ranks.
+-- Above the threshold, pick 2 distinct vows and split ranks evenly (the extra
+-- rank goes to the second pick when fearCost is odd).
+-- Every vow is hard-capped at its native max rank. Overflow from clamped picks
+-- is redistributed to the other pick first; any leftover after that is dropped.
+-- Returns { [vowName] = ranks }, or nil if no vow can absorb any Fear.
+function ProvokeMod.SelectThemedVows( fearCost )
+	local pool = {}
+	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		if current < ProvokeMod.GetVowMaxRank( vowName ) then
+			table.insert( pool, vowName )
+		end
+	end
+	if #pool == 0 then return nil end
+
+	local threshold = config.ThemedSplitThreshold or 6
+	local targetCount = (fearCost <= threshold) and 1 or 2
+	targetCount = math.min( targetCount, #pool )
+
+	local picks = {}
+	local workingPool = {}
+	for i, v in ipairs( pool ) do workingPool[i] = v end
+	for i = 1, targetCount do
+		local idx = RandomInt( 1, #workingPool )
+		table.insert( picks, workingPool[idx] )
+		table.remove( workingPool, idx )
+	end
+
+	local allocations = {}
+	if targetCount == 1 then
+		allocations[picks[1]] = fearCost
+	else
+		allocations[picks[1]] = math.floor( fearCost / 2 )
+		allocations[picks[2]] = math.ceil( fearCost / 2 )
+	end
+
+	local injections = {}
+	local overflow = 0
+	for _, vowName in ipairs( picks ) do
+		local wantRanks = allocations[vowName]
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+		local canAdd = math.max( 0, maxRank - current )
+		local actual = math.min( wantRanks, canAdd )
+		if actual > 0 then
+			injections[vowName] = actual
+		end
+		overflow = overflow + (wantRanks - actual)
+	end
+
+	if overflow > 0 then
+		for _, vowName in ipairs( picks ) do
+			if overflow <= 0 then break end
+			local current = GameState.ShrineUpgrades[vowName] or 0
+			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+			local already = injections[vowName] or 0
+			local canAdd = math.max( 0, maxRank - current - already )
+			local toAdd = math.min( overflow, canAdd )
+			if toAdd > 0 then
+				injections[vowName] = already + toAdd
+				overflow = overflow - toAdd
 			end
 		end
-		if #pool == 0 then break end
-		local idx = RandomInt( 1, #pool )
-		local vowName = pool[idx]
-		injections[vowName] = (injections[vowName] or 0) + 1
 	end
 
 	return injections
 end
 
--- Apply transient vows to GameState.ShrineUpgrades
-function ProvokeMod.InjectTransientFear( fearCost )
-	-- Safety: remove any existing transient vows first
-	if ProvokeMod.RunState.TransientFearActive then
-		ProvokeMod.RemoveTransientFear()
+-- Queue a new Fear stack at provocation time. The stack persists for a
+-- duration of rooms; each room it's active applies its injection ranks on top
+-- of any other active stacks. Greedier same-type provocations get longer
+-- durations (+1 room per prior same-type provocation, capped by config).
+function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
+	if injection == nil then
+		-- All vows full at provoke time — the player's "Fear" cannot land.
+		-- Queue nothing; let AllVowsFull block future provocations too.
+		print("[ProvokeMod] QueueFearStack: nil injection, skipping")
+		return
+	end
+	local baseDuration = 1
+	if choiceType == "RegularBoon" then
+		baseDuration = config.Duration_RegularBoon or 1
+	elseif choiceType == "EnhancedBoon" then
+		baseDuration = config.Duration_EnhancedBoon or 2
+	elseif choiceType == "Hammer" then
+		baseDuration = config.Duration_Hammer or 3
 	end
 
-	local injections = ProvokeMod.SelectTransientVows( fearCost )
+	local extension = 0
+	if config.GreedExtendsDuration then
+		-- ProvokedCounts[choiceType] already includes the current provocation
+		-- (incremented in TransformDoor). Extension = prior same-type count.
+		local count = ProvokeMod.RunState.ProvokedCounts[choiceType] or 1
+		extension = math.max( 0, count - 1 )
+	end
 
+	local duration = baseDuration + extension
+
+	table.insert( ProvokeMod.RunState.ActiveFearStacks, {
+		Injection      = injection,
+		RoomsRemaining = duration,
+		ChoiceType     = choiceType,
+		FearCost       = fearCost or 0,
+	})
+
+	print("[ProvokeMod] QueueFearStack: " .. choiceType .. " for " .. duration .. " room(s), cost " .. (fearCost or 0))
+end
+
+-- Merge all active Fear stacks into a single { [vow] = ranks } injection, then
+-- apply it on top of baseline GameState.ShrineUpgrades. Per-vow sum is clamped
+-- at each vow's native max rank. Saves the pre-application ranks in
+-- ActiveTransientVows so they can be restored later.
+function ProvokeMod.ApplyFearStacksToRoom()
+	-- Safety: remove any lingering transient injection from a prior room that
+	-- did not clean up correctly.
+	if ProvokeMod.RunState.TransientFearActive then
+		ProvokeMod.RestoreVowsOnly()
+	end
+
+	local stacks = ProvokeMod.RunState.ActiveFearStacks
+	if stacks == nil or #stacks == 0 then return end
+
+	-- Sum ranks per vow across all active stacks.
+	local merged = {}
+	for _, stack in ipairs( stacks ) do
+		for vowName, ranks in pairs( stack.Injection ) do
+			merged[vowName] = (merged[vowName] or 0) + ranks
+		end
+	end
+
+	-- Clamp each merged total to the vow's max rank minus its baseline ranks.
 	ProvokeMod.RunState.ActiveTransientVows = {}
-	for vowName, addedRanks in pairs( injections ) do
-		local originalRank = GameState.ShrineUpgrades[vowName] or 0
-		ProvokeMod.RunState.ActiveTransientVows[vowName] = {
-			OriginalRank = originalRank,
-			AddedRanks = addedRanks,
-		}
-		GameState.ShrineUpgrades[vowName] = originalRank + addedRanks
-		-- Re-extract values so all game systems read the new difficulty
-		ShrineUpgradeExtractValues( vowName )
+	for vowName, ranksToAdd in pairs( merged ) do
+		local baseline = GameState.ShrineUpgrades[vowName] or 0
+		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+		local clamped = math.min( ranksToAdd, math.max( 0, maxRank - baseline ) )
+		if clamped > 0 then
+			ProvokeMod.RunState.ActiveTransientVows[vowName] = {
+				OriginalRank = baseline,
+				AddedRanks   = clamped,
+			}
+			GameState.ShrineUpgrades[vowName] = baseline + clamped
+			ShrineUpgradeExtractValues( vowName )
+		end
 	end
 	ProvokeMod.RunState.TransientFearActive = true
 
 	local vowDetails = {}
-	for vowName, addedRanks in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
-		table.insert( vowDetails, vowName .. " +" .. addedRanks.AddedRanks .. " (was " .. addedRanks.OriginalRank .. ")" )
+	for vowName, v in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
+		table.insert( vowDetails, vowName .. " +" .. v.AddedRanks .. " (was " .. v.OriginalRank .. ")" )
 	end
-	print("[ProvokeMod] Injected Transient Fear: " .. fearCost .. " points across " .. ProvokeMod.TableLength( injections ) .. " vows: " .. table.concat( vowDetails, ", " ))
+	print("[ProvokeMod] ApplyFearStacksToRoom: " .. #stacks .. " stack(s), merged vows: " .. table.concat( vowDetails, ", " ))
+
+	ProvokeMod.UpdateFearHUD()
 end
 
--- Remove all transient vows, restoring original ranks. Idempotent.
-function ProvokeMod.RemoveTransientFear()
-	if not ProvokeMod.RunState.TransientFearActive then
-		return
+-- Persistent HUD icon cluster showing each active vow while Fear is applied.
+-- Uses the vanilla MetaUpgradeData[vow].Icon animations on small BlankObstacles
+-- arranged horizontally near the top-right of the screen.
+function ProvokeMod.UpdateFearHUD()
+	ProvokeMod.ClearFearHUD()
+	if not ProvokeMod.RunState.TransientFearActive then return end
+	if ProvokeMod.RunState.ActiveTransientVows == nil then return end
+
+	local vows = {}
+	for vowName, _ in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
+		table.insert( vows, vowName )
 	end
+	table.sort( vows )
+
+	local iconSpacing = 52
+	local startX = ScreenWidth - 40 - (#vows - 1) * iconSpacing
+	local iconY = 128
+	local ids = {}
+	for i, vowName in ipairs( vows ) do
+		local iconAnim = MetaUpgradeData and MetaUpgradeData[vowName] and MetaUpgradeData[vowName].Icon
+		if iconAnim then
+			local component = CreateScreenComponent({
+				Name  = "BlankObstacle",
+				Group = "Combat_Menu_TraitTray_Overlay",
+				X     = startX + (i - 1) * iconSpacing,
+				Y     = iconY,
+				Scale = 0.6,
+			})
+			SetAnimation({ Name = iconAnim, DestinationId = component.Id })
+			table.insert( ids, component.Id )
+		end
+	end
+	ProvokeMod.RunState.FearHUDIconIds = ids
+end
+
+function ProvokeMod.ClearFearHUD()
+	local ids = ProvokeMod.RunState.FearHUDIconIds
+	if ids and #ids > 0 then
+		Destroy({ Ids = ids })
+	end
+	ProvokeMod.RunState.FearHUDIconIds = nil
+end
+
+-- Restore ShrineUpgrades to their pre-ApplyFearStacksToRoom ranks. Idempotent.
+-- Does NOT touch stack bookkeeping — use RestoreVowsAndDecayStacks for that.
+function ProvokeMod.RestoreVowsOnly()
+	if not ProvokeMod.RunState.TransientFearActive then return end
 
 	for vowName, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
 		GameState.ShrineUpgrades[vowName] = vowData.OriginalRank
@@ -321,15 +449,44 @@ function ProvokeMod.RemoveTransientFear()
 	end
 	ProvokeMod.RunState.ActiveTransientVows = {}
 	ProvokeMod.RunState.TransientFearActive = false
+	ProvokeMod.ClearFearHUD()
+end
 
-	print("[ProvokeMod] Removed Transient Fear, vows restored")
+-- Restore vows AND advance stack bookkeeping — drops each active stack's
+-- RoomsRemaining by 1 and removes stacks that have expired. Called from
+-- OnEncounterEnd on the last encounter of the room.
+function ProvokeMod.RestoreVowsAndDecayStacks()
+	ProvokeMod.RestoreVowsOnly()
+
+	local stacks = ProvokeMod.RunState.ActiveFearStacks
+	if stacks == nil then return end
+	local kept = {}
+	for _, stack in ipairs( stacks ) do
+		stack.RoomsRemaining = stack.RoomsRemaining - 1
+		if stack.RoomsRemaining > 0 then
+			table.insert( kept, stack )
+		end
+	end
+	ProvokeMod.RunState.ActiveFearStacks = kept
+	print("[ProvokeMod] RestoreVowsAndDecayStacks: " .. #kept .. " stack(s) remain")
+end
+
+-- Legacy alias: older call sites (KillHero, LeaveRoom safety) invoke
+-- RemoveTransientFear. Keep it as a synonym for RestoreVowsOnly so those sites
+-- don't accidentally decay stacks on every safety call.
+function ProvokeMod.RemoveTransientFear()
+	ProvokeMod.RestoreVowsOnly()
 end
 
 -- ============================================================================
 -- Section 4: Door Transformation
 -- ============================================================================
 
-function ProvokeMod.TransformDoor( door, choiceType )
+-- `previewedInjection` (optional): a pre-resolved { [vow] = ranks } map from
+-- the provocation screen's preview. When present, the exact ranks shown to the
+-- player are the ones that will be applied. When nil, the room-start injection
+-- rolls fresh.
+function ProvokeMod.TransformDoor( door, choiceType, previewedInjection )
 	local room = door.Room
 	local fearCost = ProvokeMod.GetFearCost( choiceType )
 
@@ -337,6 +494,7 @@ function ProvokeMod.TransformDoor( door, choiceType )
 	local provokeData = {
 		ChoiceType = choiceType,
 		FearCost = fearCost,
+		PreviewedInjection = previewedInjection,
 		OriginalRewardType = room.ChosenRewardType,
 		OriginalForceLootName = room.ForceLootName,
 		OriginalRewardStoreName = room.RewardStoreName or door.RewardStoreName,
@@ -386,6 +544,7 @@ function ProvokeMod.TransformDoor( door, choiceType )
 
 	-- Track provocation
 	ProvokeMod.RunState.ProvocationCount = ProvokeMod.RunState.ProvocationCount + 1
+	ProvokeMod.RunState.ProvokedCounts[choiceType] = (ProvokeMod.RunState.ProvokedCounts[choiceType] or 0) + 1
 	ProvokeMod.RunState.ProvokedDoors[door.ObjectId] = provokeData
 
 	-- Refresh the door's reward preview icon
@@ -417,6 +576,8 @@ function ProvokeMod.UnTransformDoor( door )
 
 	-- Decrement the greed counter, clamped to 0
 	ProvokeMod.RunState.ProvocationCount = math.max( 0, ProvokeMod.RunState.ProvocationCount - 1 )
+	local typeKey = provokeData.ChoiceType
+	ProvokeMod.RunState.ProvokedCounts[typeKey] = math.max( 0, (ProvokeMod.RunState.ProvokedCounts[typeKey] or 0) - 1 )
 
 	-- Clear the provoke entry so the door is treated as fresh
 	ProvokeMod.RunState.ProvokedDoors[door.ObjectId] = nil
@@ -447,6 +608,22 @@ function ProvokeMod.GetDoorIconAnimName( door )
 	return nil
 end
 
+-- Apply the "cursed" purple tint to a door's reward preview icons when it has
+-- been provoked, or reset to neutral white when reverted. Uses the canonical
+-- SetColor-on-icon-ids pattern from base RoomPresentation.
+function ProvokeMod.UpdateDoorTint( door )
+	if door.RewardPreviewIconIds == nil or #door.RewardPreviewIconIds == 0 then
+		return
+	end
+	local isProvoked = ProvokeMod.RunState.ProvokedDoors[door.ObjectId] ~= nil
+	local color = isProvoked and { 0.74, 0.63, 1.0, 1.0 } or { 1.0, 1.0, 1.0, 1.0 }
+	SetColor({
+		Ids      = door.RewardPreviewIconIds,
+		Color    = color,
+		Duration = 0.2,
+	})
+end
+
 function ProvokeMod.RefreshDoorPreview( door )
 	local newAnimName = ProvokeMod.GetDoorIconAnimName( door )
 
@@ -457,6 +634,7 @@ function ProvokeMod.RefreshDoorPreview( door )
 			SetAnimation({ DestinationId = iconId, Name = newAnimName })
 		end
 		door.RewardPreviewAnimName = newAnimName
+		ProvokeMod.UpdateDoorTint( door )
 		return
 	end
 
@@ -485,14 +663,93 @@ function ProvokeMod.RefreshDoorPreview( door )
 	end
 	-- Pass explicit params so the Boon branch condition (chosenLootName ~= nil) is satisfied.
 	CreateDoorRewardPreview( door, door.Room.ChosenRewardType, door.Room.ForceLootName )
+	ProvokeMod.UpdateDoorTint( door )
 end
 
 -- ============================================================================
 -- Section 5: Provocation Choice Screen
 -- ============================================================================
 
+-- Shown in place of the choice menu when every eligible vow is already at its
+-- native max rank. Minimal dialog: title + dismiss. No cost, no state change.
+function ProvokeMod.OpenFatesSatisfiedScreen()
+	if IsScreenOpen( "FatesSatisfiedScreen" ) then return end
+
+	local screen = { Components = {}, Name = "FatesSatisfiedScreen" }
+	OnScreenOpened( screen )
+
+	local menuY = ScreenCenterY + 25
+	screen.Components.Frame = CreateScreenComponent({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
+		X = ScreenCenterX,
+		Y = menuY,
+	})
+	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.6 })
+
+	screen.Components.Title = CreateScreenComponent({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
+		X = ScreenCenterX,
+		Y = menuY - 60,
+	})
+	CreateTextBox({
+		Id = screen.Components.Title.Id,
+		Text = "The Fates are Satisfied",
+		FontSize = 26,
+		Color = { 0.74, 0.63, 1.0, 1.0 },
+		Font = "P22UndergroundSCHeavy",
+		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+		Justification = "Center",
+	})
+
+	screen.Components.Body = CreateScreenComponent({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
+		X = ScreenCenterX,
+		Y = menuY - 20,
+	})
+	CreateTextBox({
+		Id = screen.Components.Body.Id,
+		Text = "They hear no more.",
+		FontSize = 16,
+		Color = { 0.85, 0.78, 1.0, 0.9 },
+		Font = "P22UndergroundSCMedium",
+		Justification = "Center",
+	})
+
+	screen.Components.Dismiss = CreateScreenComponent({
+		Name = "ButtonDefault",
+		Group = "Combat_Menu_TraitTray",
+		X = ScreenCenterX,
+		Y = menuY + 40,
+	})
+	SetScaleX({ Id = screen.Components.Dismiss.Id, Fraction = 1.0 })
+	screen.Components.Dismiss.OnPressedFunctionName = "ProvokeMod__OnFatesSatisfiedDismiss"
+	screen.Components.Dismiss.Screen = screen
+	screen.Components.Dismiss.ControlHotkeys = { "Cancel", "Confirm" }
+	CreateTextBox({
+		Id = screen.Components.Dismiss.Id,
+		Text = "Dismiss",
+		FontSize = 16,
+		Color = { 0.7, 0.7, 0.7, 0.9 },
+		Font = "P22UndergroundSCMedium",
+		Justification = "Center",
+	})
+
+	HandleScreenInput( screen )
+end
+
+game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
+	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuBack" })
+	OnScreenCloseStarted( screen )
+	CloseScreen( GetAllIds( screen.Components ), 0.1, screen )
+	OnScreenCloseFinished( screen )
+end
+
 function ProvokeMod.OpenProvocationScreen( door )
-	if IsScreenOpen( "ProvokeFatesScreen" ) then
+	if IsScreenOpen( "ProvokeFatesScreen" ) or IsScreenOpen( "FatesSatisfiedScreen" ) then
 		return
 	end
 
@@ -500,9 +757,26 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	local isReprovoke = existingData ~= nil and existingData.Provoked == true
 	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
-	-- When re-opening a provoked door, costs should reflect what will be charged
-	-- after the current provocation is undone (ProvocationCount - 1).
-	local costOffset = isReprovoke and -1 or 0
+
+	-- If every eligible vow is already at its native max, a fresh provocation
+	-- cannot land any retaliation. Show a rejection dialog instead of charging
+	-- Fear that would silently absorb into nothing. Re-provokes still pass so
+	-- the player can revert or keep an existing choice.
+	if not isReprovoke and ProvokeMod.AllVowsFull() then
+		ProvokeMod.OpenFatesSatisfiedScreen()
+		return
+	end
+
+	-- Compute the effective 1-indexed count per button. On re-provoke, selecting
+	-- the same type reverts-then-adds so position is unchanged; a different type
+	-- reverts the old type but adds this one fresh at (current count + 1).
+	local function effectiveCountFor( choiceType )
+		local typeCount = ProvokeMod.RunState.ProvokedCounts[choiceType] or 0
+		if isReprovoke and currentChoiceType == choiceType then
+			return math.max( 1, typeCount )
+		end
+		return typeCount + 1
+	end
 
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
 
@@ -556,14 +830,60 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Justification = "Center",
 	})
 
-	-- Calculate costs (offset = -1 in re-provoke mode so the displayed cost
-	-- matches what TransformDoor will actually charge after the undo).
-	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  costOffset )
-	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", costOffset )
-	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       costOffset )
+	-- Calculate costs per button. On re-provoke, same-type selection stays at the
+	-- current count (revert-then-add); cross-type is a fresh provocation of the
+	-- new type at its own count + 1.
+	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  effectiveCountFor( "RegularBoon" ) )
+	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", effectiveCountFor( "EnhancedBoon" ) )
+	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       effectiveCountFor( "Hammer" ) )
+
+	-- Pre-resolve vow injections per choice so the player sees exactly which
+	-- vows and magnitudes will apply before committing. Rerolled on each open.
+	screen.PreviewedInjections = {
+		RegularBoon  = ProvokeMod.SelectThemedVows( regularCost ),
+		EnhancedBoon = ProvokeMod.SelectThemedVows( enhancedCost ),
+		Hammer       = ProvokeMod.SelectThemedVows( hammerCost ),
+	}
+
+	local function buildPreviewLine( injection )
+		if injection == nil then
+			return "(no vow can absorb)"
+		end
+		local parts = {}
+		for vowName, ranks in pairs( injection ) do
+			local current = GameState.ShrineUpgrades[vowName] or 0
+			table.insert( parts, ProvokeMod.GetVowValueText( vowName, {
+				OriginalRank = current,
+				AddedRanks   = ranks,
+			}) )
+		end
+		if #parts == 0 then return "(no effect)" end
+		table.sort( parts )
+		return table.concat( parts, ",  " )
+	end
 
 	local buttonY       = centerY - 90
 	local buttonSpacing = 74
+
+	-- Renders a sub-line preview of the vow effects just below a button.
+	local function spawnPreview( key, anchorY, injection )
+		local previewKey = key .. "Preview"
+		screen.Components[previewKey] = CreateScreenComponent({
+			Name = "BlankObstacle",
+			Group = "Combat_Menu_TraitTray",
+			X = ScreenCenterX,
+			Y = anchorY + 22,
+		})
+		CreateTextBox({
+			Id = screen.Components[previewKey].Id,
+			Text = buildPreviewLine( injection ),
+			FontSize = 13,
+			Color = { 0.82, 0.75, 1.0, 0.8 },
+			Font = "P22UndergroundSCMedium",
+			ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+			Justification = "Center",
+		})
+	end
 
 	-- Option 1: Regular Boon
 	local regularLabel = "Boon  (+" .. regularCost .. " Fear)"
@@ -577,9 +897,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y = buttonY,
 	})
 	SetScaleX({ Id = screen.Components.RegularBoon.Id, Fraction = 1.25 })
-	screen.Components.RegularBoon.OnPressedFunctionName = "ProvokeMod__OnSelectRegularBoon"
+	screen.Components.RegularBoon.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
 	screen.Components.RegularBoon.Door = door
 	screen.Components.RegularBoon.Screen = screen
+	screen.Components.RegularBoon.ChoiceType = "RegularBoon"
 	CreateTextBox({
 		Id = screen.Components.RegularBoon.Id,
 		Text = regularLabel,
@@ -588,6 +909,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
+	spawnPreview( "RegularBoon", buttonY, screen.PreviewedInjections.RegularBoon )
 
 	-- Option 2: Enhanced Boon
 	local enhancedLabel = "Enhanced Boon  (+" .. enhancedCost .. " Fear)"
@@ -601,9 +923,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y = buttonY + buttonSpacing,
 	})
 	SetScaleX({ Id = screen.Components.EnhancedBoon.Id, Fraction = 1.25 })
-	screen.Components.EnhancedBoon.OnPressedFunctionName = "ProvokeMod__OnSelectEnhancedBoon"
+	screen.Components.EnhancedBoon.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
 	screen.Components.EnhancedBoon.Door = door
 	screen.Components.EnhancedBoon.Screen = screen
+	screen.Components.EnhancedBoon.ChoiceType = "EnhancedBoon"
 	CreateTextBox({
 		Id = screen.Components.EnhancedBoon.Id,
 		Text = enhancedLabel,
@@ -612,6 +935,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
+	spawnPreview( "EnhancedBoon", buttonY + buttonSpacing, screen.PreviewedInjections.EnhancedBoon )
 
 	-- Option 3: Hammer
 	local hammerLabel = "Daedalus Hammer  (+" .. hammerCost .. " Fear)"
@@ -625,9 +949,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y = buttonY + buttonSpacing * 2,
 	})
 	SetScaleX({ Id = screen.Components.Hammer.Id, Fraction = 1.25 })
-	screen.Components.Hammer.OnPressedFunctionName = "ProvokeMod__OnSelectHammer"
+	screen.Components.Hammer.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
 	screen.Components.Hammer.Door = door
 	screen.Components.Hammer.Screen = screen
+	screen.Components.Hammer.ChoiceType = "Hammer"
 	CreateTextBox({
 		Id = screen.Components.Hammer.Id,
 		Text = hammerLabel,
@@ -636,6 +961,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
+	spawnPreview( "Hammer", buttonY + buttonSpacing * 2, screen.PreviewedInjections.Hammer )
 
 	if isReprovoke then
 		-- Option 4 (re-provoke only): Revert to Original
@@ -715,33 +1041,14 @@ end
 -- These must be accessible via CallFunctionName (game global scope).
 -- Since ENVY scopes our globals to the plugin, we register them on the game table.
 
-game.ProvokeMod__OnSelectRegularBoon = function( screen, button )
+game.ProvokeMod__OnSelectChoice = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
 	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
 	if existingData and existingData.Provoked then
 		ProvokeMod.UnTransformDoor( button.Door )
 	end
-	ProvokeMod.TransformDoor( button.Door, "RegularBoon" )
-	ProvokeMod.CloseProvocationScreen( screen )
-end
-
-game.ProvokeMod__OnSelectEnhancedBoon = function( screen, button )
-	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
-	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
-	if existingData and existingData.Provoked then
-		ProvokeMod.UnTransformDoor( button.Door )
-	end
-	ProvokeMod.TransformDoor( button.Door, "EnhancedBoon" )
-	ProvokeMod.CloseProvocationScreen( screen )
-end
-
-game.ProvokeMod__OnSelectHammer = function( screen, button )
-	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
-	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
-	if existingData and existingData.Provoked then
-		ProvokeMod.UnTransformDoor( button.Door )
-	end
-	ProvokeMod.TransformDoor( button.Door, "Hammer" )
+	local injection = screen.PreviewedInjections and screen.PreviewedInjections[button.ChoiceType]
+	ProvokeMod.TransformDoor( button.Door, button.ChoiceType, injection )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
@@ -767,12 +1074,16 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 	ProvokeMod.RunState.RoomEncounterCount = (currentRoom.Encounters and #currentRoom.Encounters) or 1
 	ProvokeMod.RunState.RoomEncountersCompleted = 0
 
-	if ProvokeMod.RunState.PendingFearCost then
-		local fearCost = ProvokeMod.RunState.PendingFearCost
-		ProvokeMod.RunState.PendingFearCost = nil
-		ProvokeMod.RunState.LastFearCost = fearCost
+	local stacks = ProvokeMod.RunState.ActiveFearStacks
+	if stacks ~= nil and #stacks > 0 then
+		ProvokeMod.ApplyFearStacksToRoom()
 
-		ProvokeMod.InjectTransientFear( fearCost )
+		-- Banner number: sum of ranks actually applied this room (post-clamp).
+		local totalRanks = 0
+		for _, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
+			totalRanks = totalRanks + (vowData.AddedRanks or 0)
+		end
+		ProvokeMod.RunState.LastFearCost = totalRanks
 
 		-- Collect sorted vow effect strings now that ActiveTransientVows is populated
 		local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
@@ -786,7 +1097,7 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 		})
 		CreateTextBox({
 			Id = banner.Id,
-			Text = "The Fates are Provoked  (+" .. fearCost .. " Fear)",
+			Text = "The Fates are Provoked  (+" .. totalRanks .. " Fear)",
 			FontSize = 26,
 			Color = { 0.74, 0.63, 1.0, 1.0 },
 			Font = "P22UndergroundSCHeavy",
@@ -796,7 +1107,9 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 			OutlineColor = { 0, 0, 0, 1 },
 		})
 
-		-- Vow lines are created one-by-one inside the thread so they pop in sequentially
+		-- Vow lines are created one-by-one inside the thread so they pop in sequentially.
+		-- Capture the room reference so cleanup can bail out if the player leaves early.
+		local bannerRoom = currentRoom
 		thread( function()
 			local allIds = { banner.Id }
 			local lineY = 160
@@ -826,10 +1139,18 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 			end
 
 			wait( 3.0 )
+			-- If the room changed during the wait, the IDs are already destroyed by the
+			-- room transition. Skip cleanup to avoid operating on stale/reused IDs.
+			if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
+				return
+			end
 			for _, id in ipairs( allIds ) do
 				ModifyTextBox({ Id = id, FadeTarget = 0, FadeDuration = 0.5 })
 			end
 			wait( 0.5 )
+			if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
+				return
+			end
 			for _, id in ipairs( allIds ) do
 				Destroy({ Id = id })
 			end
@@ -846,9 +1167,10 @@ function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 	ProvokeMod.RunState.RoomEncountersCompleted = (ProvokeMod.RunState.RoomEncountersCompleted or 0) + 1
 	local expected = ProvokeMod.RunState.RoomEncounterCount or 1
 	if ProvokeMod.RunState.RoomEncountersCompleted >= expected then
-		ProvokeMod.RemoveTransientFear()
+		-- Last encounter of this room: restore baseline ranks and decay stacks.
+		ProvokeMod.RestoreVowsAndDecayStacks()
 	end
-	-- LeaveRoom calls RemoveTransientFear unconditionally as a final safety net.
+	-- LeaveRoom calls RestoreVowsOnly unconditionally as a final safety net.
 end
 
 -- Helper for TableLength since the game may not provide one
@@ -870,17 +1192,9 @@ ProvokeMod.VowDisplayNames = {
 	NextBiomeEnemyShrineUpgrade   = "Vow of Menace",
 	EnemyRespawnShrineUpgrade     = "Vow of Return",
 	EnemyEliteShrineUpgrade       = "Vow of Fangs",
-	HealingReductionShrineUpgrade = "Vow of Scars",
-	ShopPricesShrineUpgrade       = "Vow of Debt",
-	MinibossCountShrineUpgrade    = "Vow of Shadow",
-	BiomeSpeedShrineUpgrade       = "Vow of Time",
-	LimitGraspShrineUpgrade       = "Vow of Void",
-	BoonManaReserveShrineUpgrade  = "Vow of Hubris",
-	BanUnpickedBoonsShrineUpgrade = "Vow of Denial",
 }
 
 -- printf-style format strings for the numerical effect at the applied rank.
--- BiomeSpeedShrineUpgrade is handled separately (UseTimeString).
 ProvokeMod.VowValueFormats = {
 	EnemyDamageShrineUpgrade      = "+%d%% foe damage",
 	EnemyHealthShrineUpgrade      = "+%d%% foe health",
@@ -890,12 +1204,6 @@ ProvokeMod.VowValueFormats = {
 	NextBiomeEnemyShrineUpgrade   = "%d%% next-biome foes",
 	EnemyRespawnShrineUpgrade     = "%d%% respawn chance",
 	EnemyEliteShrineUpgrade       = "%d perk(s) on elites",
-	HealingReductionShrineUpgrade = "healing reduced to %d%%",
-	ShopPricesShrineUpgrade       = "+%d%% shop prices",
-	MinibossCountShrineUpgrade    = "+%d mini-boss",
-	LimitGraspShrineUpgrade       = "%d%% grasp available",
-	BoonManaReserveShrineUpgrade  = "reserves %d mana/rarity",
-	BanUnpickedBoonsShrineUpgrade = "%d unpicked boons banned",
 }
 
 -- Compute the display value for a vow at newRank using its SimpleExtractValues rules.
@@ -920,12 +1228,6 @@ function ProvokeMod.ComputeVowDisplayValue( vowName, newRank )
 		changeValue = lastData.ChangeValue + (newRank - maxRank) * deltaPerRank
 	end
 
-	-- BiomeSpeedShrineUpgrade: seconds → "M:SS"
-	if vowName == "BiomeSpeedShrineUpgrade" then
-		local secs = math.floor( changeValue )
-		return string.format( "%d:%02d", math.floor( secs / 60 ), secs % 60 )
-	end
-
 	-- Apply SimpleExtractValues arithmetic (Multiply then Add)
 	local display = changeValue
 	if metaData.SimpleExtractValues then
@@ -945,11 +1247,6 @@ function ProvokeMod.GetVowValueText( vowName, vowData )
 
 	if displayValue == nil then
 		return ProvokeMod.VowDisplayNames[vowName] or vowName
-	end
-
-	-- BiomeSpeedShrineUpgrade display value is already a formatted string
-	if vowName == "BiomeSpeedShrineUpgrade" then
-		return displayValue .. " biome limit"
 	end
 
 	local fmt = ProvokeMod.VowValueFormats[vowName]

@@ -25,22 +25,47 @@ modutil.mod.Path.Wrap( "KillHero", function( base, victim, triggerArgs )
 end, mod )
 
 -- ============================================================================
--- Hook 3: Prepare transient fear on room exit
+-- Hook 3: Long-press gate + transient fear on room exit
 -- ============================================================================
+-- LeaveRoom is called when the player presses Interact on a door. If the door
+-- is provokable, we gate the call behind a release-or-timeout check: short tap
+-- = pass through to base (normal Proceed); held past ProvokeHoldSeconds = open
+-- the provocation screen and skip base entirely.
 modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
-	-- If this door was provoked, queue fear for the next room
+	if door ~= nil and ProvokeMod.IsProvokableDoor( door ) then
+		local notifyName = ProvokeMod.HoldReleaseNotifyName or "ProvokeMod__HoldRelease"
+		local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
+		NotifyOnControlReleased({
+			Names   = { "Interact" },
+			Notify  = notifyName,
+			Timeout = threshold,
+		})
+		waitUntil( notifyName )
+		if _eventTimeoutRecord and _eventTimeoutRecord[ notifyName ] then
+			-- Held past threshold: open provocation screen, suppress Proceed.
+			ProvokeMod.OpenProvocationScreen( door )
+			return
+		end
+		-- Released before threshold: short tap, continue with normal Proceed.
+	end
+
+	-- If this door was provoked, push a Fear stack for the upcoming room(s).
+	-- The stack persists for multiple rooms depending on type and greed count.
 	local doorId = door and door.ObjectId
 	local provokeData = ProvokeMod.RunState.ProvokedDoors[doorId]
 	if provokeData and provokeData.Provoked then
-		ProvokeMod.RunState.PendingFearCost = provokeData.FearCost
+		local injection = provokeData.PreviewedInjection
+			or ProvokeMod.SelectThemedVows( provokeData.FearCost )
+		ProvokeMod.QueueFearStack( provokeData.ChoiceType, injection, provokeData.FearCost )
 		ProvokeMod.RunState.LastFearCost = provokeData.FearCost
 	end
 
 	-- Remove hint and kill background listener before leaving
 	ProvokeMod.DespawnProvokeHint()
 
-	-- Safety: always remove any active transient fear when leaving a room
-	ProvokeMod.RemoveTransientFear()
+	-- Safety: always restore baseline ranks when leaving a room. Stack decay is
+	-- handled by RestoreVowsAndDecayStacks at end-of-last-encounter.
+	ProvokeMod.RestoreVowsOnly()
 
 	-- Clear provoked door state for the room being left. Door ObjectIds can be
 	-- reused by subsequent rooms; stale entries would cause natural Boon doors
