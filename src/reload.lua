@@ -888,7 +888,10 @@ end
 -- Section 5: Provocation Choice Screen
 -- ============================================================================
 
--- Shared palette so the two provocation screens read as siblings.
+-- Shared palette so the two provocation screens read as siblings and match
+-- the vanilla Mythmaker-family prompts (ElementalPromptScreenData.lua,
+-- StoryResetData.lua, MetaUpgradeCardPromptScreenData.lua) which all use
+-- MythmakerBoxDefault + plain ButtonDefault buttons, not BoonSlot assets.
 ProvokeMod.UI = {
 	Violet         = { 0.74, 0.63, 1.0, 1.0 },  -- title / cost / theme accent
 	PaleLavender   = { 0.82, 0.75, 1.0, 0.9 },  -- preview line
@@ -901,14 +904,10 @@ ProvokeMod.UI = {
 		EnhancedBoon = { 1.0, 0.85, 0.45, 1.0 },
 		Hammer       = { 1.0, 0.47, 0.20, 1.0 },
 	},
-	-- Rarity backing animation per choice. Maps to vanilla BoonSlot* names
-	-- (UpgradeChoiceData.lua:27-32) so the slot frames read in the same
-	-- colour language as the boon-pickup screen.
-	RarityAnim     = {
-		RegularBoon  = "BoonSlotRare",
-		EnhancedBoon = "BoonSlotEpic",
-		Hammer       = "BoonSlotLegendary",
-	},
+	-- Mythmaker-prompt title styling: heavy black outline + deep-black shadow.
+	-- Matches ElementalPromptScreenData.lua:44-49.
+	MythmakerTitleShadow  = { 0.05, 0.04, 0.04, 1.0 },
+	MythmakerTitleOutline = { 0.11, 0.10, 0.09, 1.0 },
 }
 
 -- Shown in place of the choice menu when every eligible vow is already at its
@@ -921,59 +920,84 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 
 	local menuY = ScreenCenterY + 25
 
+	-- Same full-screen dim as the main provocation screen.
+	screen.Components.BackgroundTint = CreateScreenComponent({
+		Name  = "rectangle01",
+		Group = "Combat_Menu_TraitTray_Backing",
+		X     = ScreenCenterX,
+		Y     = ScreenCenterY,
+	})
+	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
+	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.4 } })
+
 	screen.Components.Frame = CreateScreenComponent({
-		Name = "BlankObstacle",
+		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = menuY,
+		X     = ScreenCenterX,
+		Y     = menuY,
 	})
 	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.55 })
+	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 0.65 })
+	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = 0.55 })
 
-	-- Header component carries both title and body as offset text boxes so
-	-- the two rows move together if we ever reposition the dialog.
+	-- Header: title + body as offset text boxes on one component, same
+	-- typography as the main provocation screen.
 	screen.Components.Header = CreateScreenComponent({
-		Name = "BlankObstacle",
+		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = menuY - 50,
+		X     = ScreenCenterX,
+		Y     = menuY - 60,
 	})
 	CreateTextBox({
-		Id = screen.Components.Header.Id,
-		Text = "The Fates are Satisfied",
-		FontSize = 26,
-		Color = ProvokeMod.UI.Violet,
-		Font = "P22UndergroundSCHeavy",
-		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
-		Justification = "Center",
+		Id               = screen.Components.Header.Id,
+		Text             = "The Fates are Satisfied",
+		FontSize         = 28,
+		Color            = ProvokeMod.UI.Violet,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 4 },
+		OutlineThickness = 4,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 	CreateTextBox({
-		Id = screen.Components.Header.Id,
-		Text = "They hear no more.",
-		OffsetY = 38,
-		FontSize = 16,
-		Color = ProvokeMod.UI.MutedLavender,
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
+		Id               = screen.Components.Header.Id,
+		Text             = "They hear no more.",
+		OffsetY          = 40,
+		FontSize         = 16,
+		Color            = ProvokeMod.UI.MutedLavender,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 2,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 
 	screen.Components.Dismiss = CreateScreenComponent({
-		Name = "ButtonDefault",
+		Name  = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = menuY + 50,
+		X     = ScreenCenterX,
+		Y     = menuY + 60,
 	})
 	SetScaleX({ Id = screen.Components.Dismiss.Id, Fraction = 1.0 })
 	screen.Components.Dismiss.OnPressedFunctionName = "ProvokeMod__OnFatesSatisfiedDismiss"
-	screen.Components.Dismiss.Screen = screen
+	screen.Components.Dismiss.Screen        = screen
 	screen.Components.Dismiss.ControlHotkeys = { "Cancel", "Confirm" }
 	CreateTextBox({
-		Id = screen.Components.Dismiss.Id,
-		Text = "Dismiss",
-		FontSize = 16,
-		Color = ProvokeMod.UI.GreyText,
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
+		Id               = screen.Components.Dismiss.Id,
+		Text             = "Dismiss",
+		FontSize         = 18,
+		Color            = ProvokeMod.UI.GreyText,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 2,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 
 	TeleportCursor({ DestinationId = screen.Components.Dismiss.Id, ForceUseCheck = true })
@@ -988,76 +1012,93 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice "slot" using the vanilla BoonSlotBase graphic. The slot
--- itself is the clickable component; title / cost / preview / optional
--- "CURRENT" badge are attached as offset text boxes on the same Id so they
--- inherit mouse/cursor focus and slide together if positioning changes.
+-- Build one choice row using the same ButtonDefault the vanilla Mythmaker
+-- prompts (StoryResetData, ElementalPromptScreenData) use inside a
+-- MythmakerBoxDefault frame. Title / cost / preview / optional "CURRENT"
+-- badge are attached as offset text boxes on the same Id so they inherit
+-- mouse-over focus and slide together if the row repositions.
 local function buildChoiceSlot( screen, key, params )
 	local slot = CreateScreenComponent({
-		Name  = "BoonSlotBase",
+		Name  = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
 		X     = params.X,
 		Y     = params.Y,
 	})
-	SetAnimation({ Name = params.RarityAnim, DestinationId = slot.Id })
-	SetScale({ Id = slot.Id, Fraction = params.Scale })
+	SetScaleX({ Id = slot.Id, Fraction = params.ScaleX })
 	slot.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
 	slot.Door       = params.Door
 	slot.Screen     = screen
 	slot.ChoiceType = params.ChoiceType
 	screen.Components[key] = slot
 
-	-- Title on the left half of the slot.
+	-- Title on the left, with Mythmaker-style heavy outline so it reads
+	-- against the violet frame instead of blurring into the button surface.
 	CreateTextBox({
-		Id           = slot.Id,
-		Text         = params.Title,
-		OffsetX      = -210,
-		OffsetY      = -14,
-		FontSize     = 19,
-		Color        = params.TitleColor,
-		Font         = "P22UndergroundSCMedium",
-		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
-		Justification = "Left",
+		Id               = slot.Id,
+		Text             = params.Title,
+		OffsetX          = -170,
+		OffsetY          = -10,
+		FontSize         = 20,
+		Color            = params.TitleColor,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 3,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Left",
 	})
 
-	-- Cost pill on the right half of the slot.
+	-- Cost on the right. Same outline treatment as the title.
 	CreateTextBox({
-		Id           = slot.Id,
-		Text         = "+" .. tostring( params.Cost ) .. " Fear",
-		OffsetX      = 220,
-		OffsetY      = -14,
-		FontSize     = 18,
-		Color        = ProvokeMod.UI.Violet,
-		Font         = "P22UndergroundSCMedium",
-		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
-		Justification = "Right",
+		Id               = slot.Id,
+		Text             = "+" .. tostring( params.Cost ) .. " Fear",
+		OffsetX          = 170,
+		OffsetY          = -10,
+		FontSize         = 18,
+		Color            = ProvokeMod.UI.Violet,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 3,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Right",
 	})
 
-	-- Vow preview line under the title, inside the slot.
+	-- Vow preview line under the title inside the row.
 	CreateTextBox({
-		Id           = slot.Id,
-		Text         = params.Preview,
-		OffsetX      = -210,
-		OffsetY      = 14,
-		FontSize     = 13,
-		Color        = ProvokeMod.UI.PaleLavender,
-		Font         = "P22UndergroundSCMedium",
-		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 1 },
-		Justification = "Left",
+		Id               = slot.Id,
+		Text             = params.Preview,
+		OffsetX          = -170,
+		OffsetY          = 16,
+		FontSize         = 14,
+		Color            = ProvokeMod.UI.PaleLavender,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 2 },
+		OutlineThickness = 2,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Left",
 	})
 
 	-- "CURRENT" badge replaces the old inline "[current]" label on re-provoke.
 	if params.IsCurrent then
 		CreateTextBox({
-			Id           = slot.Id,
-			Text         = "CURRENT",
-			OffsetX      = 220,
-			OffsetY      = 16,
-			FontSize     = 11,
-			Color        = ProvokeMod.UI.CurrentAmber,
-			Font         = "P22UndergroundSCHeavy",
-			ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 1 },
-			Justification = "Right",
+			Id               = slot.Id,
+			Text             = "CURRENT",
+			OffsetX          = 170,
+			OffsetY          = 18,
+			FontSize         = 12,
+			Color            = ProvokeMod.UI.CurrentAmber,
+			Font             = "P22UndergroundSCHeavy",
+			ShadowBlur       = 0,
+			ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+			ShadowOffset     = { 0, 2 },
+			OutlineThickness = 2,
+			OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+			Justification    = "Right",
 		})
 	end
 
@@ -1097,6 +1138,18 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	local menuY = ScreenCenterY + 25
 
+	-- Full-screen dim behind the modal, matching vanilla Mythmaker prompts
+	-- (ElementalPromptScreenData.lua:14, StoryResetData.lua:15). Keeps the
+	-- combat HUD readable but pushes it back.
+	screen.Components.BackgroundTint = CreateScreenComponent({
+		Name  = "rectangle01",
+		Group = "Combat_Menu_TraitTray_Backing",
+		X     = ScreenCenterX,
+		Y     = ScreenCenterY,
+	})
+	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
+	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.4 } })
+
 	-- Outer frame. Re-provoke mode adds a fourth row (Revert), so the frame
 	-- extends *vertically* instead of uniformly via per-axis scaling.
 	screen.Components.Frame = CreateScreenComponent({
@@ -1109,33 +1162,44 @@ function ProvokeMod.OpenProvocationScreen( door )
 	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 0.85 })
 	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.0 or 0.82 })
 
-	-- Header: title + subtitle on one component, stacked via OffsetY so the
-	-- two lines move together when the dialog repositions.
+	-- Header: title + subtitle on one component, stacked via OffsetY. Title
+	-- uses Mythmaker-style heavy outline + shadow so it reads on the frame's
+	-- violet brocade without a separate backing (same treatment vanilla
+	-- ElementalPromptScreenData applies to its TitleText at FontSize 40).
 	screen.Components.Header = CreateScreenComponent({
 		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = ScreenCenterX,
-		Y     = menuY - 205,
+		Y     = menuY - 215,
 	})
 	CreateTextBox({
-		Id           = screen.Components.Header.Id,
-		Text         = "Provoke the Fates",
-		FontSize     = 28,
-		Color        = ProvokeMod.UI.Violet,
-		Font         = "P22UndergroundSCHeavy",
-		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
-		Justification = "Center",
+		Id               = screen.Components.Header.Id,
+		Text             = "Provoke the Fates",
+		FontSize         = 32,
+		Color            = ProvokeMod.UI.Violet,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 4 },
+		OutlineThickness = 4,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 	CreateTextBox({
-		Id           = screen.Components.Header.Id,
-		Text         = isReprovoke
+		Id               = screen.Components.Header.Id,
+		Text             = isReprovoke
 			and "Change your choice, or revert the door."
 			or  "Upgrade this reward. The Fates will retaliate.",
-		OffsetY      = 34,
-		FontSize     = 15,
-		Color        = ProvokeMod.UI.MutedLavender,
-		Font         = "P22UndergroundSCMedium",
-		Justification = "Center",
+		OffsetY          = 40,
+		FontSize         = 16,
+		Color            = ProvokeMod.UI.MutedLavender,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 2,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 
 	-- Resolve the vow injection each button will commit to, so the preview
@@ -1170,11 +1234,11 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three choice slots, stacked vertically. Scale 0.55 shrinks the
-	-- full-screen boon pickup slot into a modal-sized row.
-	local slotScale   = 0.55
-	local slotSpacing = 96
-	local firstSlotY  = menuY - 105
+	-- Three choice rows, stacked vertically. Use a wide ButtonDefault scale
+	-- so the title + cost + preview fit inside the same surface.
+	local slotScaleX  = 1.35
+	local slotSpacing = 82
+	local firstSlotY  = menuY - 110
 
 	local slotParams = {
 		{
@@ -1204,8 +1268,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		buildChoiceSlot( screen, p.key, {
 			X          = ScreenCenterX,
 			Y          = firstSlotY + (i - 1) * slotSpacing,
-			Scale      = slotScale,
-			RarityAnim = ProvokeMod.UI.RarityAnim[p.choiceType],
+			ScaleX     = slotScaleX,
 			Door       = door,
 			ChoiceType = p.choiceType,
 			Title      = p.title,
@@ -1228,19 +1291,24 @@ function ProvokeMod.OpenProvocationScreen( door )
 			X     = ScreenCenterX,
 			Y     = secondaryY,
 		})
-		SetScaleX({ Id = screen.Components.Revert.Id, Fraction = 0.95 })
+		SetScaleX({ Id = screen.Components.Revert.Id, Fraction = 1.0 })
 		screen.Components.Revert.OnPressedFunctionName = "ProvokeMod__OnRevert"
 		screen.Components.Revert.Door   = door
 		screen.Components.Revert.Screen = screen
 		CreateTextBox({
-			Id           = screen.Components.Revert.Id,
-			Text         = "Revert to Original",
-			FontSize     = 15,
-			Color        = ProvokeMod.UI.DustyRose,
-			Font         = "P22UndergroundSCMedium",
-			Justification = "Center",
+			Id               = screen.Components.Revert.Id,
+			Text             = "Revert to Original",
+			FontSize         = 17,
+			Color            = ProvokeMod.UI.DustyRose,
+			Font             = "P22UndergroundSCMedium",
+			ShadowBlur       = 0,
+			ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+			ShadowOffset     = { 0, 3 },
+			OutlineThickness = 2,
+			OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+			Justification    = "Center",
 		})
-		secondaryY = secondaryY + 48
+		secondaryY = secondaryY + 54
 	end
 
 	screen.Components.Cancel = CreateScreenComponent({
@@ -1249,17 +1317,22 @@ function ProvokeMod.OpenProvocationScreen( door )
 		X     = ScreenCenterX,
 		Y     = secondaryY,
 	})
-	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 0.95 })
+	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.0 })
 	screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
 	screen.Components.Cancel.Screen        = screen
 	screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
 	CreateTextBox({
-		Id           = screen.Components.Cancel.Id,
-		Text         = isReprovoke and "Keep Choice" or "Don't Provoke",
-		FontSize     = 15,
-		Color        = ProvokeMod.UI.GreyText,
-		Font         = "P22UndergroundSCMedium",
-		Justification = "Center",
+		Id               = screen.Components.Cancel.Id,
+		Text             = isReprovoke and "Keep Choice" or "Don't Provoke",
+		FontSize         = 17,
+		Color            = ProvokeMod.UI.GreyText,
+		Font             = "P22UndergroundSCMedium",
+		ShadowBlur       = 0,
+		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset     = { 0, 3 },
+		OutlineThickness = 2,
+		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification    = "Center",
 	})
 
 	-- Park the cursor on the safe-dismiss button so an accidental Confirm on
