@@ -936,9 +936,8 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		X     = ScreenCenterX,
 		Y     = menuY,
 	})
-	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 0.65 })
-	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = 0.55 })
+	SetAnimation({ Name = "GUI\\Screens\\Shrine\\TestamentBacking", DestinationId = screen.Components.Frame.Id })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.85 })
 
 	-- Header: title + body as offset text boxes on one component, same
 	-- typography as the main provocation screen.
@@ -1034,13 +1033,13 @@ local function buildChoiceCard( screen, key, params )
 	card.ChoiceType = params.ChoiceType
 	screen.Components[key] = card
 
-	-- Title centered near the top of the card.
+	-- Title centered near the top of the scroll.
 	CreateTextBox({
 		Id               = card.Id,
 		Text             = params.Title,
-		OffsetY          = -88,
-		Width            = 210,
-		FontSize         = 20,
+		OffsetY          = -120,
+		Width            = 280,
+		FontSize         = 22,
 		Color            = params.TitleColor,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1051,13 +1050,13 @@ local function buildChoiceCard( screen, key, params )
 		Justification    = "Center",
 	})
 
-	-- Cost sits under the title, the visual anchor of the "price" on this card.
+	-- Cost sits under the title — the price anchor of this scroll.
 	CreateTextBox({
 		Id               = card.Id,
 		Text             = "+" .. tostring( params.Cost ) .. " Fear",
-		OffsetY          = -55,
-		Width            = 210,
-		FontSize         = 22,
+		OffsetY          = -78,
+		Width            = 280,
+		FontSize         = 24,
 		Color            = ProvokeMod.UI.Violet,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1068,36 +1067,35 @@ local function buildChoiceCard( screen, key, params )
 		Justification    = "Center",
 	})
 
-	-- Vow preview fills the lower half of the scroll. Width = 200 forces the
-	-- engine to wrap long injections (e.g. "+7% foe damage, +2 shield per foe")
-	-- across two or three lines instead of overflowing the card.
+	-- Vow preview fills the lower half of the scroll. Width forces the engine
+	-- to wrap long injections across two or three lines instead of overflowing.
 	CreateTextBox({
-		Id               = card.Id,
-		Text             = params.Preview,
-		OffsetY          = 10,
-		Width            = 200,
-		LineSpacingBottom = 3,
-		FontSize         = 14,
-		Color            = ProvokeMod.UI.PaleLavender,
-		Font             = "P22UndergroundSCMedium",
-		ShadowBlur       = 0,
-		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset     = { 0, 2 },
-		OutlineThickness = 2,
-		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Center",
+		Id                = card.Id,
+		Text              = params.Preview,
+		OffsetY           = 10,
+		Width             = 260,
+		LineSpacingBottom = 4,
+		FontSize          = 15,
+		Color             = ProvokeMod.UI.PaleLavender,
+		Font              = "P22UndergroundSCMedium",
+		ShadowBlur        = 0,
+		ShadowColor       = ProvokeMod.UI.MythmakerTitleShadow,
+		ShadowOffset      = { 0, 2 },
+		OutlineThickness  = 2,
+		OutlineColor      = ProvokeMod.UI.MythmakerTitleOutline,
+		Justification     = "Center",
 		VerticalJustification = "Top",
 	})
 
-	-- CURRENT badge appears at the base of the scroll on the player's current
-	-- provocation when re-opening the screen.
+	-- CURRENT badge appears near the bottom of the scroll on the player's
+	-- current provocation when re-opening the screen.
 	if params.IsCurrent then
 		CreateTextBox({
 			Id               = card.Id,
 			Text             = "CURRENT",
-			OffsetY          = 90,
-			Width            = 210,
-			FontSize         = 13,
+			OffsetY          = 120,
+			Width            = 280,
+			FontSize         = 14,
 			Color            = ProvokeMod.UI.CurrentAmber,
 			Font             = "P22UndergroundSCHeavy",
 			ShadowBlur       = 0,
@@ -1145,9 +1143,8 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	local menuY = ScreenCenterY + 25
 
-	-- Full-screen dim behind the modal, matching vanilla Mythmaker prompts
-	-- (ElementalPromptScreenData.lua:14, StoryResetData.lua:15). Keeps the
-	-- combat HUD readable but pushes it back.
+	-- Full-screen dim behind the ritual. Stronger than the Mythmaker prompt
+	-- default so the Testament scrolls read as the focal point.
 	screen.Components.BackgroundTint = CreateScreenComponent({
 		Name  = "rectangle01",
 		Group = "Combat_Menu_TraitTray_Backing",
@@ -1155,21 +1152,20 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y     = ScreenCenterY,
 	})
 	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
-	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.4 } })
+	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.6 } })
 
-	-- Outer frame. Re-provoke mode adds a fourth row (Revert), so the frame
-	-- extends *vertically* instead of uniformly via per-axis scaling.
+	-- Outer frame: a horizontal scroll backdrop. GUI\Screens\Shrine\TestamentBacking
+	-- is the large parchment the Shrine paints behind its oath scrolls —
+	-- wider than it is tall, naturally built to hold Testament-style content,
+	-- and visually ties the whole screen together with the per-choice scrolls.
 	screen.Components.Frame = CreateScreenComponent({
 		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = ScreenCenterX,
 		Y     = menuY,
 	})
-	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	-- Wider frame than the vanilla prompts — we're fanning three Testament
-	-- scrolls out horizontally instead of stacking text rows vertically.
-	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 1.35 })
-	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.05 or 0.92 })
+	SetAnimation({ Name = "GUI\\Screens\\Shrine\\TestamentBacking", DestinationId = screen.Components.Frame.Id })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.65 or 1.45 })
 
 	-- Header: title + subtitle on one component, stacked via OffsetY. Heavy
 	-- outline + shadow matches Mythmaker-family titles (ElementalPromptScreenData.lua:44).
@@ -1241,10 +1237,13 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three Testament-scroll cards fanned out horizontally across the frame.
-	local cardScale   = 0.9
-	local cardSpacing = 235
-	local cardRowY    = menuY - 20
+	-- Three Testament-scroll cards fanned out horizontally. Scale 1.3 gives
+	-- the parchment enough surface for the title + cost + wrapped preview to
+	-- breathe; spacing matches so the cards overlap their frames slightly
+	-- without crowding each other's text.
+	local cardScale   = 1.3
+	local cardSpacing = 340
+	local cardRowY    = menuY
 	local centerIndex = 2  -- middle card sits on ScreenCenterX
 
 	local cardParams = {
@@ -1288,7 +1287,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	-- Secondary buttons below the card row. Revert (re-provoke only) then
 	-- Cancel, stacked vertically to stay visually subordinate to the scrolls.
-	local secondaryY = cardRowY + 175
+	local secondaryY = cardRowY + 215
 
 	if isReprovoke then
 		screen.Components.Revert = CreateScreenComponent({
