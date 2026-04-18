@@ -27,31 +27,6 @@ ProvokeMod.EligibleVows = {
 	"EnemyEliteShrineUpgrade",
 }
 
--- Vows whose effect is bounded by definition (percentage-based — spawning
--- "120% of next-biome foes" makes no sense, and a respawn chance above 100%
--- cannot land). These get hard-clamped at their native max rank. Every other
--- eligible vow stacks linearly and may exceed its vanilla max rank; the
--- display math in ComputeVowDisplayValue extrapolates the ChangeValue, so the
--- banner and HUD still read correctly at ranks > max.
-ProvokeMod.CappedVows = {
-	NextBiomeEnemyShrineUpgrade = true,
-	EnemyRespawnShrineUpgrade   = true,
-}
-
-function ProvokeMod.IsCappedVow( vowName )
-	return ProvokeMod.CappedVows[vowName] == true
-end
-
--- Ranks a vow can still absorb on top of its current GameState value. Uncapped
--- vows report math.huge so the Fear-allocation loops treat them as bottomless.
-function ProvokeMod.VowCanAdd( vowName )
-	if not ProvokeMod.IsCappedVow( vowName ) then
-		return math.huge
-	end
-	local current = GameState.ShrineUpgrades[vowName] or 0
-	local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-	return math.max( 0, maxRank - current )
-end
 
 -- ----------------------------------------------------------------------------
 -- Playtest logger. Leveled + categorized. Output is routed through Lua's
@@ -299,14 +274,13 @@ function ProvokeMod.GetVowMaxRank( vowName )
 	return 0
 end
 
--- Returns true when every eligible vow is already at its native max rank AND
--- is hard-capped. Uncapped vows can always absorb more Fear, so with any
--- uncapped vow in the eligible list this is effectively never true — but the
--- check still fires correctly for a future config that eligibilizes only
--- capped vows.
+-- Returns true when every eligible vow is already at its native max rank.
+-- The caller uses this to block a provocation with a "Fates are satisfied"
+-- rejection instead of charging Fear that cannot land anywhere.
 function ProvokeMod.AllVowsFull()
 	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-		if ProvokeMod.VowCanAdd( vowName ) > 0 then
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		if current < ProvokeMod.GetVowMaxRank( vowName ) then
 			return false
 		end
 	end
@@ -317,15 +291,15 @@ end
 -- At or below ThemedSplitThreshold Fear, pick 1 vow and give it all the ranks.
 -- Above the threshold, pick 2 distinct vows and split ranks evenly (the extra
 -- rank goes to the second pick when fearCost is odd).
--- Capped vows (percentage-based) hard-cap at their native max rank; overflow
--- from a capped pick spills to the other pick and then to any remaining
--- uncapped vow in the pool, so every Fear point paid lands somewhere.
--- Uncapped vows never cap: they can accept ranks beyond their vanilla max.
--- Returns { [vowName] = ranks }, or nil if no vow can absorb any Fear.
+-- Every vow is hard-capped at its native max rank; if the initial picks can't
+-- absorb the full Fear cost, overflow pulls more vows in from the remaining
+-- pool (random order) so every paid Fear point lands as a visible rank.
+-- Returns { [vowName] = ranks }, or nil if no vow has any remaining room.
 function ProvokeMod.SelectThemedVows( fearCost )
 	local pool = {}
 	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-		if ProvokeMod.VowCanAdd( vowName ) > 0 then
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		if current < ProvokeMod.GetVowMaxRank( vowName ) then
 			table.insert( pool, vowName )
 		end
 	end
@@ -335,13 +309,15 @@ function ProvokeMod.SelectThemedVows( fearCost )
 	local targetCount = (fearCost <= threshold) and 1 or 2
 	targetCount = math.min( targetCount, #pool )
 
+	-- Initial themed picks are drawn from the pool; remainingPool keeps the
+	-- rest so the overflow spill has more vows to fall through to.
+	local remainingPool = {}
+	for i, v in ipairs( pool ) do remainingPool[i] = v end
 	local picks = {}
-	local workingPool = {}
-	for i, v in ipairs( pool ) do workingPool[i] = v end
 	for i = 1, targetCount do
-		local idx = RandomInt( 1, #workingPool )
-		table.insert( picks, workingPool[idx] )
-		table.remove( workingPool, idx )
+		local idx = RandomInt( 1, #remainingPool )
+		table.insert( picks, remainingPool[idx] )
+		table.remove( remainingPool, idx )
 	end
 
 	local allocations = {}
@@ -353,49 +329,43 @@ function ProvokeMod.SelectThemedVows( fearCost )
 	end
 
 	local injections = {}
-	local overflow = 0
-	for _, vowName in ipairs( picks ) do
-		local wantRanks = allocations[vowName]
-		local canAdd = ProvokeMod.VowCanAdd( vowName )
-		local actual = math.min( wantRanks, canAdd )
-		if actual > 0 then
-			injections[vowName] = actual
+	local function roomFor( vowName )
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+		local already = injections[vowName] or 0
+		return math.max( 0, maxRank - current - already )
+	end
+	local function allocate( vowName, want )
+		local take = math.min( want, roomFor( vowName ) )
+		if take > 0 then
+			injections[vowName] = (injections[vowName] or 0) + take
 		end
-		overflow = overflow + (wantRanks - actual)
+		return want - take  -- leftover
 	end
 
-	-- First overflow pass: re-offer to picks that still have room (the other
-	-- pick is usually uncapped and bottomless, so this swallows everything).
+	-- First pass: themed picks get the split allocation.
+	local overflow = 0
+	for _, vowName in ipairs( picks ) do
+		overflow = overflow + allocate( vowName, allocations[vowName] )
+	end
+
+	-- Second pass: if one pick capped out while the other still has room
+	-- (single-pick mode, uneven splits), let the other pick absorb the spill
+	-- before dragging more vows in.
 	if overflow > 0 then
 		for _, vowName in ipairs( picks ) do
 			if overflow <= 0 then break end
-			local already = injections[vowName] or 0
-			local canAdd = ProvokeMod.VowCanAdd( vowName ) - already
-			if canAdd < 0 then canAdd = 0 end
-			local toAdd = math.min( overflow, canAdd )
-			if toAdd > 0 then
-				injections[vowName] = already + toAdd
-				overflow = overflow - toAdd
-			end
+			overflow = allocate( vowName, overflow )
 		end
 	end
 
-	-- Second overflow pass: spill to the rest of the pool so Fear that the
-	-- picks couldn't absorb still lands on some vow. Keeps the "themed"
-	-- visual (picks are still the headline allocations) without silently
-	-- dropping ranks when every pick happened to be capped.
-	if overflow > 0 then
-		for _, vowName in ipairs( workingPool ) do
-			if overflow <= 0 then break end
-			local already = injections[vowName] or 0
-			local canAdd = ProvokeMod.VowCanAdd( vowName ) - already
-			if canAdd < 0 then canAdd = 0 end
-			local toAdd = math.min( overflow, canAdd )
-			if toAdd > 0 then
-				injections[vowName] = already + toAdd
-				overflow = overflow - toAdd
-			end
-		end
+	-- Third pass: pull additional vows from the rest of the pool (random
+	-- order) until every Fear point has landed or the pool is exhausted.
+	while overflow > 0 and #remainingPool > 0 do
+		local idx = RandomInt( 1, #remainingPool )
+		local vowName = remainingPool[idx]
+		table.remove( remainingPool, idx )
+		overflow = allocate( vowName, overflow )
 	end
 
 	for vowName, ranks in pairs( injections ) do
@@ -461,11 +431,11 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 end
 
 -- Merge all active Fear stacks into a single { [vow] = ranks } injection, then
--- apply it on top of baseline GameState.ShrineUpgrades. Capped vows (those in
--- ProvokeMod.CappedVows) have their per-vow sum clamped at the vow's native
--- max rank so percentage-based effects stay in their meaningful range;
--- uncapped vows stack linearly past their max. Saves the pre-application
--- ranks in ActiveTransientVows so they can be restored later.
+-- apply it on top of baseline GameState.ShrineUpgrades. Every vow clamps at
+-- its native max rank. If two stacks both picked the same vow and the merged
+-- sum would exceed its cap, the excess spills to additional eligible vows
+-- with remaining room so paid Fear still lands as visible ranks. Saves the
+-- pre-application ranks in ActiveTransientVows so they can be restored later.
 function ProvokeMod.ApplyFearStacksToRoom()
 	-- Safety: remove any lingering transient injection from a prior room that
 	-- did not clean up correctly.
@@ -485,25 +455,69 @@ function ProvokeMod.ApplyFearStacksToRoom()
 		end
 	end
 
-	-- Apply each merged total. Capped vows clamp at native max; uncapped vows
-	-- accept the full sum so paid Fear always lands as visible ranks.
+	-- Apply each merged total, clamping at the vow's remaining room. Any
+	-- excess accumulates in `overflow` and gets redistributed below.
 	ProvokeMod.RunState.ActiveTransientVows = {}
+	local overflow = 0
 	for vowName, ranksToAdd in pairs( merged ) do
 		local baseline = GameState.ShrineUpgrades[vowName] or 0
-		local toAdd = ranksToAdd
-		if ProvokeMod.IsCappedVow( vowName ) then
-			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-			toAdd = math.min( ranksToAdd, math.max( 0, maxRank - baseline ) )
-		end
-		if toAdd > 0 then
+		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+		local room = math.max( 0, maxRank - baseline )
+		local take = math.min( ranksToAdd, room )
+		if take > 0 then
 			ProvokeMod.RunState.ActiveTransientVows[vowName] = {
 				OriginalRank = baseline,
-				AddedRanks   = toAdd,
+				AddedRanks   = take,
 			}
-			GameState.ShrineUpgrades[vowName] = baseline + toAdd
+			GameState.ShrineUpgrades[vowName] = baseline + take
 			ShrineUpgradeExtractValues( vowName )
 		end
+		overflow = overflow + (ranksToAdd - take)
 	end
+
+	-- Spill merge overflow to other eligible vows with remaining room — same
+	-- "add more vows" principle as SelectThemedVows. Random order keeps runs
+	-- from always spilling onto the same leftovers.
+	if overflow > 0 then
+		local candidates = {}
+		for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
+			local baseline = GameState.ShrineUpgrades[vowName] or 0
+			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+			local existing = ProvokeMod.RunState.ActiveTransientVows[vowName]
+			local already = existing and existing.AddedRanks or 0
+			if baseline + already < maxRank then
+				table.insert( candidates, vowName )
+			end
+		end
+		while overflow > 0 and #candidates > 0 do
+			local idx = RandomInt( 1, #candidates )
+			local vowName = candidates[idx]
+			table.remove( candidates, idx )
+			local baseline = GameState.ShrineUpgrades[vowName] or 0
+			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+			local existing = ProvokeMod.RunState.ActiveTransientVows[vowName]
+			local already = existing and existing.AddedRanks or 0
+			local room = math.max( 0, maxRank - baseline - already )
+			local take = math.min( overflow, room )
+			if take > 0 then
+				if existing then
+					existing.AddedRanks = already + take
+				else
+					ProvokeMod.RunState.ActiveTransientVows[vowName] = {
+						OriginalRank = baseline,
+						AddedRanks   = take,
+					}
+				end
+				GameState.ShrineUpgrades[vowName] = baseline + already + take
+				ShrineUpgradeExtractValues( vowName )
+				overflow = overflow - take
+			end
+		end
+		if overflow > 0 then
+			ProvokeMod.Log.warn( "fear", "merge overflow dropped: pool exhausted", { overflow = overflow } )
+		end
+	end
+
 	ProvokeMod.RunState.TransientFearActive = true
 
 	local vowDetails = {}
