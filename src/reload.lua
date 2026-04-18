@@ -920,7 +920,8 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 
 	local menuY = ScreenCenterY + 25
 
-	-- Same full-screen dim as the main provocation screen.
+	-- Same full-screen dim as the main provocation screen — the two dialogs
+	-- stay siblings by sharing the backdrop rather than a shared frame asset.
 	screen.Components.BackgroundTint = CreateScreenComponent({
 		Name  = "rectangle01",
 		Group = "Combat_Menu_TraitTray_Backing",
@@ -928,16 +929,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		Y     = ScreenCenterY,
 	})
 	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
-	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.4 } })
-
-	screen.Components.Frame = CreateScreenComponent({
-		Name  = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X     = ScreenCenterX,
-		Y     = menuY,
-	})
-	SetAnimation({ Name = "GUI\\Screens\\Shrine\\TestamentBacking", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.85 })
+	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.72 } })
 
 	-- Header: title + body as offset text boxes on one component, same
 	-- typography as the main provocation screen.
@@ -1013,11 +1005,11 @@ end
 
 -- Build one choice card. Each card is a BaseInteractableButton rendered with
 -- the vanilla "Testament" scroll graphic (GUI\Screens\Shrine\Testament) —
--- the same asset the Shrine bounty board paints its oath scrolls with, which
--- matches the Mythmaker/Oath ritual theme the mod is built around. Title,
+-- the same asset the Shrine bounty board paints its oath scrolls with. Title,
 -- cost, preview, and the optional CURRENT badge are attached as offset text
--- boxes on the card itself so clicking / cursor-focusing the card picks up
--- the whole stack.
+-- boxes on the card itself. BaseInteractableButton doesn't animate a built-in
+-- hover state, so we wire OnMouseOverFunctionName/OnMouseOffFunctionName to
+-- our own handlers that tint the scroll on focus.
 local function buildChoiceCard( screen, key, params )
 	local card = CreateScreenComponent({
 		Name  = "BaseInteractableButton",
@@ -1028,9 +1020,12 @@ local function buildChoiceCard( screen, key, params )
 	SetAnimation({ Name = "GUI\\Screens\\Shrine\\Testament", DestinationId = card.Id })
 	SetScale({ Id = card.Id, Fraction = params.Scale })
 	card.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
+	card.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
+	card.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
 	card.Door       = params.Door
 	card.Screen     = screen
 	card.ChoiceType = params.ChoiceType
+	card.BaseScale  = params.Scale
 	screen.Components[key] = card
 
 	-- Title centered near the top of the scroll.
@@ -1143,8 +1138,12 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	local menuY = ScreenCenterY + 25
 
-	-- Full-screen dim behind the ritual. Stronger than the Mythmaker prompt
-	-- default so the Testament scrolls read as the focal point.
+	-- Strong full-screen dim is the only backdrop — the vanilla "TestamentBacking"
+	-- we tried before turned out to be a painted sigil, not a wide frame, and
+	-- every proper framing asset we tested either distorts when stretched
+	-- (MythmakerBoxDefault) or collides with combat HUD overlays. Matching the
+	-- boon-pickup / shop approach of a pure dim + focused presentation is the
+	-- safer path: the Testament scrolls are the focal point.
 	screen.Components.BackgroundTint = CreateScreenComponent({
 		Name  = "rectangle01",
 		Group = "Combat_Menu_TraitTray_Backing",
@@ -1152,20 +1151,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y     = ScreenCenterY,
 	})
 	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
-	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.6 } })
-
-	-- Outer frame: a horizontal scroll backdrop. GUI\Screens\Shrine\TestamentBacking
-	-- is the large parchment the Shrine paints behind its oath scrolls —
-	-- wider than it is tall, naturally built to hold Testament-style content,
-	-- and visually ties the whole screen together with the per-choice scrolls.
-	screen.Components.Frame = CreateScreenComponent({
-		Name  = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X     = ScreenCenterX,
-		Y     = menuY,
-	})
-	SetAnimation({ Name = "GUI\\Screens\\Shrine\\TestamentBacking", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.65 or 1.45 })
+	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.72 } })
 
 	-- Header: title + subtitle on one component, stacked via OffsetY. Heavy
 	-- outline + shadow matches Mythmaker-family titles (ElementalPromptScreenData.lua:44).
@@ -1173,7 +1159,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = ScreenCenterX,
-		Y     = menuY - 195,
+		Y     = menuY - 210,
 	})
 	CreateTextBox({
 		Id               = screen.Components.Header.Id,
@@ -1389,6 +1375,21 @@ game.ProvokeMod__OnRevert = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuBack" })
 	ProvokeMod.UnTransformDoor( button.Door )
 	ProvokeMod.CloseProvocationScreen( screen )
+end
+
+-- Manual hover highlight for the Testament-scroll cards. BaseInteractableButton
+-- doesn't drive its own hover animation, so on cursor-over we scale the scroll
+-- up slightly and brighten it; on cursor-off we reset.
+game.ProvokeMod__OnCardMouseOver = function( screen, button )
+	PlaySound({ Name = "/SFX/Menu Sounds/GeneralWhooshMENU" })
+	local focus = (button.BaseScale or 1.0) * 1.08
+	SetScale({ Id = button.Id, Fraction = focus })
+	SetColor({ Id = button.Id, Color = { 1.25, 1.15, 1.35, 1.0 } })
+end
+
+game.ProvokeMod__OnCardMouseOff = function( screen, button )
+	SetScale({ Id = button.Id, Fraction = button.BaseScale or 1.0 })
+	SetColor({ Id = button.Id, Color = { 1.0, 1.0, 1.0, 1.0 } })
 end
 
 -- ============================================================================
