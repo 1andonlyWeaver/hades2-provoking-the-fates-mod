@@ -1012,16 +1012,17 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice row using the vanilla boon-pickup per-slot text formats
--- (screen.TitleText / screen.CostText / screen.DescriptionText from the
--- deep-copied ScreenData.UpgradeChoice). Positions match vanilla exactly:
--- itemLocationX = ScreenCenterX - 355, itemLocationY steps by screen.ButtonSpacingY.
+-- Build one choice row. Matches vanilla boon-pickup structure: a Highlight
+-- overlay, a BoonSlotBase button with rarity-tier backing, an Icon on the
+-- far-left, and attached title / cost / penalty-description text boxes.
+-- AttachLua on both slot and highlight is critical — without it the engine's
+-- mouseover dispatch can't find the Lua table and the highlight stays dark.
 local function buildChoiceRow( screen, key, params )
 	local itemLocationX = ScreenCenterX - 355 + screen.ButtonOffsetX
 	local itemLocationY = (ScreenCenterY - 190) + screen.ButtonSpacingY * ( params.Index - 1 )
 
-	-- Highlight overlay — the same BlankObstacle vanilla lays down behind
-	-- every boon slot, animated by the mouseover handler.
+	-- Highlight overlay — the BlankObstacle vanilla lays behind every boon
+	-- slot, animated by the mouseover handler.
 	local highlight = CreateScreenComponent({
 		Name  = "BlankObstacle",
 		Group = screen.ComponentData.DefaultGroup,
@@ -1029,6 +1030,8 @@ local function buildChoiceRow( screen, key, params )
 		Y     = itemLocationY,
 	})
 	SetAlpha({ Id = highlight.Id, Fraction = 0.0 })
+	AttachLua({ Id = highlight.Id, Table = highlight })
+	highlight.Screen = screen
 	screen.Components[key .. "Highlight"] = highlight
 
 	-- BoonSlotBase with the rarity-tier backing animation.
@@ -1039,6 +1042,7 @@ local function buildChoiceRow( screen, key, params )
 		Y     = itemLocationY,
 	})
 	SetAnimation({ Name = screen.RarityBackingAnimations[params.Rarity], DestinationId = slot.Id })
+	AttachLua({ Id = slot.Id, Table = slot })
 	slot.OnPressedFunctionName   = "ProvokeMod__OnSelectChoice"
 	slot.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
 	slot.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
@@ -1048,39 +1052,65 @@ local function buildChoiceRow( screen, key, params )
 	slot.Highlight  = highlight
 	screen.Components[key] = slot
 
-	-- Title + cost + description all use the exact vanilla formats, cloned
-	-- with ShallowCopyTable so we can override Text / Color without mutating
-	-- the screen template. Strip LuaKey / LuaValue / DataProperties because
-	-- those hook into the boon tooltip system we don't need.
-	local function createText( format, overrides )
-		local args = ShallowCopyTable( format )
-		args.LuaKey = nil
-		args.LuaValue = nil
-		args.DataProperties = nil
-		args.UseDescription = nil
-		args.Format = nil
-		args.VariableAutoFormat = nil
-		for k, v in pairs( overrides ) do args[k] = v end
-		args.Id = slot.Id
-		CreateTextBox( args )
+	-- Icon on the far-left of the slot. Vanilla places boon icons here via
+	-- screen.IconOffsetX / IconOffsetY (UpgradeChoiceData.lua:39-40).
+	if params.IconAnim then
+		local icon = CreateScreenComponent({
+			Name  = "BlankObstacle",
+			Group = screen.ComponentData.DefaultGroup,
+			X     = itemLocationX + screen.IconOffsetX,
+			Y     = itemLocationY + screen.IconOffsetY,
+			Scale = 0.6,
+		})
+		SetAnimation({ Name = params.IconAnim, DestinationId = icon.Id })
+		screen.Components[key .. "Icon"] = icon
 	end
 
-	createText( screen.TitleText, {
-		Text  = params.Title,
-		Color = params.TitleColor,
+	-- Title (upper-left area of slot, matching vanilla TitleText offset).
+	CreateTextBox({
+		Id            = slot.Id,
+		Text          = params.Title,
+		OffsetX       = -420,
+		OffsetY       = -60,
+		FontSize      = 27,
+		Color         = params.TitleColor,
+		Font          = "P22UndergroundSCMedium",
+		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification = "Left",
 	})
 
-	createText( screen.CostText, {
-		Text  = "+" .. tostring( params.Cost ) .. " Fear",
-		Color = ProvokeMod.UI.Violet,
+	-- Cost (upper-right area, matching vanilla RarityText / CostText offset).
+	CreateTextBox({
+		Id            = slot.Id,
+		Text          = "+" .. tostring( params.Cost ) .. " Fear",
+		OffsetX       = 410,
+		OffsetY       = -60,
+		FontSize      = 28,
+		Color         = ProvokeMod.UI.Violet,
+		Font          = "P22UndergroundSCMedium",
+		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification = "Right",
 	})
 
-	createText( screen.DescriptionText, {
-		Text = params.Preview,
+	-- Penalty description. Width 830 wraps long injections onto two lines.
+	-- Intro "Fates demand: " prefixes the vow list so the player immediately
+	-- reads this as the cost-side copy, not the reward copy.
+	CreateTextBox({
+		Id                    = slot.Id,
+		Text                  = "Fates demand: " .. params.Preview,
+		OffsetX               = -420,
+		OffsetY               = -20,
+		Width                 = 830,
+		LineSpacingBottom     = 5,
+		FontSize              = 20,
+		Color                 = { 0.92, 0.86, 1.0, 1.0 },
+		Font                  = "LatoMedium",
+		ShadowBlur            = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification         = "Left",
+		VerticalJustification = "Top",
 	})
 
-	-- CURRENT badge — our addition, placed bottom-right of the slot to echo
-	-- where vanilla puts the stack-level pip badge.
+	-- CURRENT badge — bottom-right on re-provoke to flag the active choice.
 	if params.IsCurrent then
 		CreateTextBox({
 			Id            = slot.Id,
@@ -1172,6 +1202,14 @@ function ProvokeMod.OpenProvocationScreen( door )
 		SetColor({ Id = screen.Components.ShopBackgroundGradient.Id, Color = lightingColor })
 	end
 
+	-- SourceIcon is the symbol "Melinoe is holding" in the ShopBackground
+	-- sprite. Vanilla sets it to the offering god's Icon; we don't have a
+	-- god so we use the hammer symbol — the most distinctive of the three
+	-- offerings and thematically the "heaviest" gift of the Fates.
+	if screen.Components.SourceIcon then
+		SetAnimation({ Name = "BoonSymbolHammer", DestinationId = screen.Components.SourceIcon.Id })
+	end
+
 	-- Replace vanilla placeholder text with our ritual copy.
 	ModifyTextBox({ Id = screen.Components.TitleText.Id, Text = "Provoke the Fates" })
 	ModifyTextBox({
@@ -1210,9 +1248,9 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.UpgradeButtons = {}
 
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",             cost = regularCost,  rarity = "Rare"      },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",    cost = enhancedCost, rarity = "Epic"      },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer",  cost = hammerCost,   rarity = "Legendary" },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonSymbolZeus"   },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonSymbolPom"    },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "BoonSymbolHammer" },
 	}
 
 	for i, choice in ipairs( choiceConfigs ) do
@@ -1226,13 +1264,15 @@ function ProvokeMod.OpenProvocationScreen( door )
 			Preview    = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
 			IsCurrent  = (currentChoiceType == choice.choiceType),
 			Rarity     = choice.rarity,
+			IconAnim   = choice.iconAnim,
 		})
 	end
 
-	-- Secondary buttons below the last boon row. Revert (re-provoke only)
-	-- then Cancel — our addition; vanilla boon pickup uses the global action
-	-- bar instead of per-dialog cancel buttons.
-	local secondaryY = (ScreenCenterY - 190) + screen.ButtonSpacingY * 3 + 40
+	-- Secondary buttons below the last boon row. Place absolutely near screen
+	-- bottom so they stay on-screen regardless of how many slots spawned
+	-- (vanilla's stride of 256 x 3 slots drops the third row at Y ≈ 862, so
+	-- Y = 1010 clears it with ~100px of margin on 1080p).
+	local secondaryY = 1010
 
 	if isReprovoke then
 		screen.Components.Revert = CreateScreenComponent({
@@ -1245,6 +1285,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		screen.Components.Revert.OnPressedFunctionName = "ProvokeMod__OnRevert"
 		screen.Components.Revert.Door   = door
 		screen.Components.Revert.Screen = screen
+		AttachLua({ Id = screen.Components.Revert.Id, Table = screen.Components.Revert })
 		CreateTextBox({
 			Id               = screen.Components.Revert.Id,
 			Text             = "Revert to Original",
@@ -1267,14 +1308,15 @@ function ProvokeMod.OpenProvocationScreen( door )
 		X     = ScreenCenterX,
 		Y     = secondaryY,
 	})
-	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.0 })
+	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.1 })
 	screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
 	screen.Components.Cancel.Screen        = screen
 	screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
+	AttachLua({ Id = screen.Components.Cancel.Id, Table = screen.Components.Cancel })
 	CreateTextBox({
 		Id               = screen.Components.Cancel.Id,
 		Text             = isReprovoke and "Keep Choice" or "Don't Provoke",
-		FontSize         = 17,
+		FontSize         = 19,
 		Color            = ProvokeMod.UI.GreyText,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1284,6 +1326,19 @@ function ProvokeMod.OpenProvocationScreen( door )
 		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
 		Justification    = "Center",
 	})
+
+	-- Vanilla "back button" widget below the Cancel button — same graphic
+	-- the Mythmaker prompts (ElementalPromptScreenData.lua:77) use as their
+	-- close affordance. Drawn as a BlankObstacle with the ShellButtonBack
+	-- animation so it reads as an actual button icon, not text.
+	screen.Components.CancelGlyph = CreateScreenComponent({
+		Name  = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray",
+		X     = ScreenCenterX,
+		Y     = secondaryY + 48,
+	})
+	SetAnimation({ Name = "ShellButtonBack", DestinationId = screen.Components.CancelGlyph.Id })
+	SetScale({ Id = screen.Components.CancelGlyph.Id, Fraction = 0.75 })
 
 	-- Park the cursor on the safe-dismiss button so an accidental Confirm on
 	-- screen-open doesn't spend Fear. Pattern from BoonInfoLogic.lua:27.
@@ -1336,23 +1391,23 @@ game.ProvokeMod__OnRevert = function( screen, button )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
--- Hover highlight for the boon-style choice rows. BoonSlotBase supports
--- cursor focus natively but the highlight effect is painted on a separate
--- overlay component (vanilla UpgradeChoiceLogic.lua:1355). We mirror that:
--- on mouseover animate "BoonSlotHighlight" on the Highlight BlankObstacle;
--- on mouseoff play "BoonHighlightOut" to reverse the animation.
-game.ProvokeMod__OnCardMouseOver = function( screen, button )
-	if button and button.Id then
-		PlaySound({ Name = "/SFX/Menu Sounds/GodBoonMenuToggle", Id = button.Id })
-	end
-	if button and button.Highlight and button.Highlight.Id then
-		SetAnimation({ DestinationId = button.Highlight.Id, Name = "BoonSlotHighlight" })
+-- Hover highlight for the boon-style choice rows. Vanilla MouseOver callbacks
+-- are invoked with a single `component` argument (see MouseOverBoonButton at
+-- UpgradeChoiceLogic.lua:1345), not the (screen, button) signature OnPressed
+-- uses. Drive the BoonSlotHighlight animation on the separate Highlight
+-- BlankObstacle exactly the way vanilla UpgradeChoiceLogic.lua:1355 does.
+game.ProvokeMod__OnCardMouseOver = function( component )
+	if component == nil then return end
+	PlaySound({ Name = "/SFX/Menu Sounds/GodBoonMenuToggle", Id = component.Id })
+	if component.Highlight and component.Highlight.Id then
+		SetAnimation({ DestinationId = component.Highlight.Id, Name = "BoonSlotHighlight" })
 	end
 end
 
-game.ProvokeMod__OnCardMouseOff = function( screen, button )
-	if button and button.Highlight and button.Highlight.Id then
-		SetAnimation({ DestinationId = button.Highlight.Id, Name = "BoonHighlightOut" })
+game.ProvokeMod__OnCardMouseOff = function( component )
+	if component == nil then return end
+	if component.Highlight and component.Highlight.Id then
+		SetAnimation({ DestinationId = component.Highlight.Id, Name = "BoonHighlightOut" })
 	end
 end
 
