@@ -1021,15 +1021,19 @@ local function buildChoiceRow( screen, key, params )
 	local itemLocationX = ScreenCenterX - 355 + screen.ButtonOffsetX
 	local itemLocationY = (ScreenCenterY - 190) + screen.ButtonSpacingY * ( params.Index - 1 )
 
-	-- Highlight overlay — the BlankObstacle vanilla lays behind every boon
-	-- slot, animated by the mouseover handler.
+	-- Highlight overlay — match ShrineLogic.lua:81-88 exactly: pre-load the
+	-- highlight animation on a BlankObstacle at Alpha 0 during creation, then
+	-- toggle alpha on hover. Pre-loading matters — creating an empty
+	-- BlankObstacle and calling SetAnimation after-the-fact doesn't bind the
+	-- animation properly in practice (the highlight stays dark).
 	local highlight = CreateScreenComponent({
-		Name  = "BlankObstacle",
-		Group = screen.ComponentData.DefaultGroup,
-		X     = itemLocationX,
-		Y     = itemLocationY,
+		Name      = "BlankObstacle",
+		Group     = screen.ComponentData.DefaultGroup,
+		X         = itemLocationX,
+		Y         = itemLocationY,
+		Animation = "BoonSlotHighlight",
+		Alpha     = 0.0,
 	})
-	SetAlpha({ Id = highlight.Id, Fraction = 0.0 })
 	AttachLua({ Id = highlight.Id, Table = highlight })
 	highlight.Screen = screen
 	screen.Components[key .. "Highlight"] = highlight
@@ -1247,10 +1251,14 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
+	-- Icons use the same "door-preview" family the game paints on boon doors
+	-- (BoonDropZeusPreview / BoonDropZeusUpgradedPreview / WeaponUpgradePreview),
+	-- so the choice reads as "the boon/hammer that'll be waiting in the next
+	-- room" even though the specific god won't be rolled until TransformDoor.
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonSymbolZeus"   },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonSymbolPom"    },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "BoonSymbolHammer" },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonDropZeusPreview"         },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonDropZeusUpgradedPreview" },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"        },
 	}
 
 	for i, choice in ipairs( choiceConfigs ) do
@@ -1391,23 +1399,22 @@ game.ProvokeMod__OnRevert = function( screen, button )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
--- Hover highlight for the boon-style choice rows. Vanilla MouseOver callbacks
--- are invoked with a single `component` argument (see MouseOverBoonButton at
--- UpgradeChoiceLogic.lua:1345), not the (screen, button) signature OnPressed
--- uses. Drive the BoonSlotHighlight animation on the separate Highlight
--- BlankObstacle exactly the way vanilla UpgradeChoiceLogic.lua:1355 does.
+-- Hover highlight for the boon-style choice rows. The MouseOver callback
+-- signature is `function(component)` (UpgradeChoiceLogic.lua:1345). We match
+-- ShrinePresentation.lua:143 exactly: SetAlpha the pre-loaded highlight to
+-- 1 on hover, 0 on exit, with a brief tween so it fades smoothly.
 game.ProvokeMod__OnCardMouseOver = function( component )
 	if component == nil then return end
 	PlaySound({ Name = "/SFX/Menu Sounds/GodBoonMenuToggle", Id = component.Id })
 	if component.Highlight and component.Highlight.Id then
-		SetAnimation({ DestinationId = component.Highlight.Id, Name = "BoonSlotHighlight" })
+		SetAlpha({ Id = component.Highlight.Id, Fraction = 1.0, Duration = 0.1 })
 	end
 end
 
 game.ProvokeMod__OnCardMouseOff = function( component )
 	if component == nil then return end
 	if component.Highlight and component.Highlight.Id then
-		SetAnimation({ DestinationId = component.Highlight.Id, Name = "BoonHighlightOut" })
+		SetAlpha({ Id = component.Highlight.Id, Fraction = 0.0, Duration = 0.1 })
 	end
 end
 
