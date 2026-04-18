@@ -1043,13 +1043,19 @@ end
 
 game.ProvokeMod__OnSelectChoice = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
-	local existingData = ProvokeMod.RunState.ProvokedDoors[button.Door.ObjectId]
+	local door = button.Door
+	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	if existingData and existingData.Provoked then
-		ProvokeMod.UnTransformDoor( button.Door )
+		ProvokeMod.UnTransformDoor( door )
 	end
 	local injection = screen.PreviewedInjections and screen.PreviewedInjections[button.ChoiceType]
-	ProvokeMod.TransformDoor( button.Door, button.ChoiceType, injection )
+	ProvokeMod.TransformDoor( door, button.ChoiceType, injection )
 	ProvokeMod.CloseProvocationScreen( screen )
+	-- Auto-proceed: skip AttemptUseDoor (its pre-LeaveRoom setup already ran on
+	-- the initial press), call LeaveRoom directly. Our LeaveRoom wrap re-enters
+	-- but IsControlDown is false (Confirm was pressed, not Use/Interact), so the
+	-- hold-gate branch is skipped and we fall through to the provoked-door path.
+	thread( LeaveRoom, CurrentRun, door )
 end
 
 game.ProvokeMod__OnCancel = function( screen, button )

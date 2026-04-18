@@ -33,20 +33,32 @@ end, mod )
 -- the provocation screen and skip base entirely.
 modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	if door ~= nil and ProvokeMod.IsProvokableDoor( door ) then
-		local notifyName = ProvokeMod.HoldReleaseNotifyName or "ProvokeMod__HoldRelease"
-		local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
-		NotifyOnControlReleased({
-			Names   = { "Interact" },
-			Notify  = notifyName,
-			Timeout = threshold,
-		})
-		waitUntil( notifyName )
-		if _eventTimeoutRecord and _eventTimeoutRecord[ notifyName ] then
-			-- Held past threshold: open provocation screen, suppress Proceed.
-			ProvokeMod.OpenProvocationScreen( door )
-			return
+		-- If Interact was already released before this wrap ran, the press was
+		-- a quick tap whose release we can't retroactively catch. Pass through
+		-- to base Proceed. Only arm the release listener when the button is
+		-- still held at this point.
+		if IsControlDown({ Name = "Use" }) or IsControlDown({ Name = "Interact" }) then
+			local notifyName = ProvokeMod.HoldReleaseNotifyName or "ProvokeMod__HoldRelease"
+			local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
+			NotifyOnControlReleased({
+				Names   = { "Use", "Interact" },
+				Notify  = notifyName,
+				Timeout = threshold,
+			})
+			waitUntil( notifyName )
+			local timedOut = _eventTimeoutRecord and _eventTimeoutRecord[ notifyName ]
+			if _eventTimeoutRecord then _eventTimeoutRecord[ notifyName ] = nil end
+			if timedOut then
+				-- Held past threshold: open provocation screen, suppress Proceed.
+				-- AttemptUseDoor set door.InUse = true before calling us; clear it
+				-- so the player can re-interact with this door after the menu closes
+				-- (AttemptUseDoor early-returns at RoomLogic.lua:751 when InUse).
+				door.InUse = false
+				ProvokeMod.OpenProvocationScreen( door )
+				return
+			end
+			-- Released before threshold: short tap, continue with normal Proceed.
 		end
-		-- Released before threshold: short tap, continue with normal Proceed.
 	end
 
 	-- If this door was provoked, push a Fear stack for the upcoming room(s).
