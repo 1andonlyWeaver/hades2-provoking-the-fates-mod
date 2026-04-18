@@ -1251,15 +1251,18 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
-	-- Icons use door-preview glyphs vanilla paints on actual boon doors.
-	-- BoonDropChaosPreview is the mystery/bag-shaped Chaos boon preview —
-	-- fits our "unknown god, will be rolled at TransformDoor" semantics
-	-- better than any specific god's icon. (No UpgradedPreview variant
-	-- exists for Chaos; the Epic rarity frame on the Enhanced row carries
-	-- the "upgraded" visual cue instead.)
+	-- Icon choice: GiftDropPreview is the mystery-boon bag (the "brown bag"
+	-- Charon sells for a random deity's boon). Vanilla's RandomLoot obstacle
+	-- inherits from BaseBoonDrop which uses Graphic = "GiftDrop"; the
+	-- preview-sized variant for UI slots is GiftDropPreview
+	-- (ConsumableData.lua:1841 registers it as the SurfaceShopIcon for
+	-- GiftDrop). Fits our "god is unknown until TransformDoor rolls it"
+	-- semantics better than any specific god's preview.
+	-- Vanilla has no upgraded variant of the bag; the Epic rarity frame on
+	-- the Enhanced row carries the "upgraded" visual cue instead.
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonDropChaosPreview" },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonDropChaosPreview" },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "GiftDropPreview"      },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "GiftDropPreview"      },
 		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview" },
 	}
 
