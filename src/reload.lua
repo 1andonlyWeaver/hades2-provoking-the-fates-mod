@@ -119,11 +119,17 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	if door == nil or door.Room == nil then
 		return false
 	end
-	-- Exclude boss encounter rooms: check the current room (not door.Room, which is the destination).
+	-- Exclude provoking FROM a boss room (the door's source is the current room).
 	if CurrentRun and CurrentRun.CurrentRoom and CurrentRun.CurrentRoom.Encounter then
 		if CurrentRun.CurrentRoom.Encounter.EncounterType == "Boss" then
 			return false
 		end
+	end
+	-- Exclude provoking INTO a boss room: the biome boss reward slot shouldn't
+	-- be swappable for a Hammer / Boon, and the UX of provoking a boss fight
+	-- on top of the existing boss-room vow stack is too much.
+	if door.Room.Encounter and door.Room.Encounter.EncounterType == "Boss" then
+		return false
 	end
 	-- Exclude story/NPC rooms (Arachne, Narcissus, etc.): their ForcedReward propagates
 	-- to ChosenRewardType = "Story", but RewardStoreName can still be "MetaProgress".
