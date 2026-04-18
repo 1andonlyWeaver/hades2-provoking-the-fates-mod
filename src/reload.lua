@@ -888,8 +888,31 @@ end
 -- Section 5: Provocation Choice Screen
 -- ============================================================================
 
+-- Shared palette so the two provocation screens read as siblings.
+ProvokeMod.UI = {
+	Violet         = { 0.74, 0.63, 1.0, 1.0 },  -- title / cost / theme accent
+	PaleLavender   = { 0.82, 0.75, 1.0, 0.9 },  -- preview line
+	MutedLavender  = { 0.75, 0.70, 0.85, 0.9 }, -- subtitle / body
+	CurrentAmber   = { 1.0,  0.88, 0.55, 1.0 }, -- "CURRENT" badge on re-provoke
+	GreyText       = { 0.7,  0.7,  0.7,  0.9 }, -- dismissive secondary button
+	DustyRose      = { 0.85, 0.65, 0.65, 0.9 }, -- "Revert to Original" button
+	ChoiceColor    = {
+		RegularBoon  = { 1.0, 1.0,  1.0,  1.0 },
+		EnhancedBoon = { 1.0, 0.85, 0.45, 1.0 },
+		Hammer       = { 1.0, 0.47, 0.20, 1.0 },
+	},
+	-- Rarity backing animation per choice. Maps to vanilla BoonSlot* names
+	-- (UpgradeChoiceData.lua:27-32) so the slot frames read in the same
+	-- colour language as the boon-pickup screen.
+	RarityAnim     = {
+		RegularBoon  = "BoonSlotRare",
+		EnhancedBoon = "BoonSlotEpic",
+		Hammer       = "BoonSlotLegendary",
+	},
+}
+
 -- Shown in place of the choice menu when every eligible vow is already at its
--- native max rank. Minimal dialog: title + dismiss. No cost, no state change.
+-- native max rank. Minimal dialog: header + dismiss. No cost, no state change.
 function ProvokeMod.OpenFatesSatisfiedScreen()
 	if IsScreenOpen( "FatesSatisfiedScreen" ) then return end
 
@@ -897,6 +920,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 	OnScreenOpened( screen )
 
 	local menuY = ScreenCenterY + 25
+
 	screen.Components.Frame = CreateScreenComponent({
 		Name = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
@@ -904,35 +928,31 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		Y = menuY,
 	})
 	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.6 })
+	SetScale({ Id = screen.Components.Frame.Id, Fraction = 0.55 })
 
-	screen.Components.Title = CreateScreenComponent({
+	-- Header component carries both title and body as offset text boxes so
+	-- the two rows move together if we ever reposition the dialog.
+	screen.Components.Header = CreateScreenComponent({
 		Name = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = menuY - 60,
+		Y = menuY - 50,
 	})
 	CreateTextBox({
-		Id = screen.Components.Title.Id,
+		Id = screen.Components.Header.Id,
 		Text = "The Fates are Satisfied",
 		FontSize = 26,
-		Color = { 0.74, 0.63, 1.0, 1.0 },
+		Color = ProvokeMod.UI.Violet,
 		Font = "P22UndergroundSCHeavy",
 		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
 		Justification = "Center",
 	})
-
-	screen.Components.Body = CreateScreenComponent({
-		Name = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = menuY - 20,
-	})
 	CreateTextBox({
-		Id = screen.Components.Body.Id,
+		Id = screen.Components.Header.Id,
 		Text = "They hear no more.",
+		OffsetY = 38,
 		FontSize = 16,
-		Color = { 0.85, 0.78, 1.0, 0.9 },
+		Color = ProvokeMod.UI.MutedLavender,
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
@@ -941,7 +961,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		Name = "ButtonDefault",
 		Group = "Combat_Menu_TraitTray",
 		X = ScreenCenterX,
-		Y = menuY + 40,
+		Y = menuY + 50,
 	})
 	SetScaleX({ Id = screen.Components.Dismiss.Id, Fraction = 1.0 })
 	screen.Components.Dismiss.OnPressedFunctionName = "ProvokeMod__OnFatesSatisfiedDismiss"
@@ -951,7 +971,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		Id = screen.Components.Dismiss.Id,
 		Text = "Dismiss",
 		FontSize = 16,
-		Color = { 0.7, 0.7, 0.7, 0.9 },
+		Color = ProvokeMod.UI.GreyText,
 		Font = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
@@ -968,20 +988,94 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
+-- Build one choice "slot" using the vanilla BoonSlotBase graphic. The slot
+-- itself is the clickable component; title / cost / preview / optional
+-- "CURRENT" badge are attached as offset text boxes on the same Id so they
+-- inherit mouse/cursor focus and slide together if positioning changes.
+local function buildChoiceSlot( screen, key, params )
+	local slot = CreateScreenComponent({
+		Name  = "BoonSlotBase",
+		Group = "Combat_Menu_TraitTray",
+		X     = params.X,
+		Y     = params.Y,
+	})
+	SetAnimation({ Name = params.RarityAnim, DestinationId = slot.Id })
+	SetScale({ Id = slot.Id, Fraction = params.Scale })
+	slot.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
+	slot.Door       = params.Door
+	slot.Screen     = screen
+	slot.ChoiceType = params.ChoiceType
+	screen.Components[key] = slot
+
+	-- Title on the left half of the slot.
+	CreateTextBox({
+		Id           = slot.Id,
+		Text         = params.Title,
+		OffsetX      = -210,
+		OffsetY      = -14,
+		FontSize     = 19,
+		Color        = params.TitleColor,
+		Font         = "P22UndergroundSCMedium",
+		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification = "Left",
+	})
+
+	-- Cost pill on the right half of the slot.
+	CreateTextBox({
+		Id           = slot.Id,
+		Text         = "+" .. tostring( params.Cost ) .. " Fear",
+		OffsetX      = 220,
+		OffsetY      = -14,
+		FontSize     = 18,
+		Color        = ProvokeMod.UI.Violet,
+		Font         = "P22UndergroundSCMedium",
+		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification = "Right",
+	})
+
+	-- Vow preview line under the title, inside the slot.
+	CreateTextBox({
+		Id           = slot.Id,
+		Text         = params.Preview,
+		OffsetX      = -210,
+		OffsetY      = 14,
+		FontSize     = 13,
+		Color        = ProvokeMod.UI.PaleLavender,
+		Font         = "P22UndergroundSCMedium",
+		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 1 },
+		Justification = "Left",
+	})
+
+	-- "CURRENT" badge replaces the old inline "[current]" label on re-provoke.
+	if params.IsCurrent then
+		CreateTextBox({
+			Id           = slot.Id,
+			Text         = "CURRENT",
+			OffsetX      = 220,
+			OffsetY      = 16,
+			FontSize     = 11,
+			Color        = ProvokeMod.UI.CurrentAmber,
+			Font         = "P22UndergroundSCHeavy",
+			ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 1 },
+			Justification = "Right",
+		})
+	end
+
+	return slot
+end
+
 function ProvokeMod.OpenProvocationScreen( door )
 	if IsScreenOpen( "ProvokeFatesScreen" ) or IsScreenOpen( "FatesSatisfiedScreen" ) then
 		return
 	end
 
-	-- Detect whether this door has already been transformed.
 	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	local isReprovoke = existingData ~= nil and existingData.Provoked == true
 	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
 
-	-- If every eligible vow is already at its native max, a fresh provocation
-	-- cannot land any retaliation. Show a rejection dialog instead of charging
-	-- Fear that would silently absorb into nothing. Re-provokes still pass so
-	-- the player can revert or keep an existing choice.
+	-- Every eligible vow already at native max → rejection dialog instead of
+	-- charging Fear that cannot land. Re-provokes still pass through so the
+	-- player can revert or keep the current choice.
 	if not isReprovoke and ProvokeMod.AllVowsFull() then
 		ProvokeMod.Log.info( "provoke", "blocked: all vows full", { objectId = door.ObjectId } )
 		ProvokeMod.OpenFatesSatisfiedScreen()
@@ -989,76 +1083,63 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Greed tracks total provocations in the run, so every button shows the
-	-- same next-slot position. On re-provoke the selection reverts-then-adds,
-	-- so ProvocationCount is unchanged and the new choice occupies the same
-	-- slot the original choice did.
+	-- same next-slot position. On re-provoke the selection reverts-then-adds
+	-- (ProvocationCount unchanged) so the new choice occupies the same slot.
 	local totalCount = ProvokeMod.RunState.ProvocationCount or 0
 	local nextPosition = isReprovoke and math.max( 1, totalCount ) or (totalCount + 1)
-	local function effectiveCountFor( _choiceType )
-		return nextPosition
-	end
+
+	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  nextPosition )
+	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition )
+	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       nextPosition )
 
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
-
 	OnScreenOpened( screen )
 
-	-- Ornate dialog frame. Scale slightly larger in re-provoke mode to fit 5th button.
 	local menuY = ScreenCenterY + 25
+
+	-- Outer frame. Re-provoke mode adds a fourth row (Revert), so the frame
+	-- extends *vertically* instead of uniformly via per-axis scaling.
 	screen.Components.Frame = CreateScreenComponent({
-		Name = "BlankObstacle",
+		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = menuY,
+		X     = ScreenCenterX,
+		Y     = menuY,
 	})
 	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScale({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 0.92 or 0.78 })
+	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 0.85 })
+	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.0 or 0.82 })
 
-	local centerY = menuY
-
-	-- Title
-	screen.Components.TitleBacking = CreateScreenComponent({
-		Name = "BlankObstacle",
+	-- Header: title + subtitle on one component, stacked via OffsetY so the
+	-- two lines move together when the dialog repositions.
+	screen.Components.Header = CreateScreenComponent({
+		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = centerY - 200,
+		X     = ScreenCenterX,
+		Y     = menuY - 205,
 	})
 	CreateTextBox({
-		Id = screen.Components.TitleBacking.Id,
-		Text = "Provoke the Fates",
-		FontSize = 28,
-		Color = { 0.74, 0.63, 1.0, 1.0 },
-		Font = "P22UndergroundSCHeavy",
-		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+		Id           = screen.Components.Header.Id,
+		Text         = "Provoke the Fates",
+		FontSize     = 28,
+		Color        = ProvokeMod.UI.Violet,
+		Font         = "P22UndergroundSCHeavy",
+		ShadowBlur   = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
 		Justification = "Center",
 	})
-
-	-- Subtitle
-	screen.Components.Subtitle = CreateScreenComponent({
-		Name = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = centerY - 160,
-	})
 	CreateTextBox({
-		Id = screen.Components.Subtitle.Id,
-		Text = isReprovoke
+		Id           = screen.Components.Header.Id,
+		Text         = isReprovoke
 			and "Change your choice, or revert the door."
 			or  "Upgrade this reward. The Fates will retaliate.",
-		FontSize = 15,
-		Color = { 0.75, 0.70, 0.85, 0.9 },
-		Font = "P22UndergroundSCMedium",
+		OffsetY      = 34,
+		FontSize     = 15,
+		Color        = ProvokeMod.UI.MutedLavender,
+		Font         = "P22UndergroundSCMedium",
 		Justification = "Center",
 	})
 
-	-- Calculate costs per button. On re-provoke, same-type selection stays at the
-	-- current count (revert-then-add); cross-type is a fresh provocation of the
-	-- new type at its own count + 1.
-	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  effectiveCountFor( "RegularBoon" ) )
-	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", effectiveCountFor( "EnhancedBoon" ) )
-	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       effectiveCountFor( "Hammer" ) )
-
-	-- Pre-resolve vow injections per choice so the player sees exactly which
-	-- vows and magnitudes will apply before committing. Rerolled on each open.
+	-- Resolve the vow injection each button will commit to, so the preview
+	-- text shown matches what actually lands.
 	screen.PreviewedInjections = {
 		RegularBoon  = ProvokeMod.SelectThemedVows( regularCost ),
 		EnhancedBoon = ProvokeMod.SelectThemedVows( enhancedCost ),
@@ -1075,14 +1156,12 @@ function ProvokeMod.OpenProvocationScreen( door )
 	} )
 
 	local function buildPreviewLine( injection )
-		if injection == nil then
-			return "(no vow can absorb)"
-		end
+		if injection == nil then return "(no vow can absorb)" end
 		local parts = {}
 		for vowName, ranks in pairs( injection ) do
-			local current = GameState.ShrineUpgrades[vowName] or 0
+			local baseline = GameState.ShrineUpgrades[vowName] or 0
 			table.insert( parts, ProvokeMod.GetVowValueText( vowName, {
-				OriginalRank = current,
+				OriginalRank = baseline,
 				AddedRanks   = ranks,
 			}) )
 		end
@@ -1091,174 +1170,100 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	local buttonY       = centerY - 90
-	local buttonSpacing = 74
+	-- Three choice slots, stacked vertically. Scale 0.55 shrinks the
+	-- full-screen boon pickup slot into a modal-sized row.
+	local slotScale   = 0.55
+	local slotSpacing = 96
+	local firstSlotY  = menuY - 105
 
-	-- Renders a sub-line preview of the vow effects just below a button.
-	local function spawnPreview( key, anchorY, injection )
-		local previewKey = key .. "Preview"
-		screen.Components[previewKey] = CreateScreenComponent({
-			Name = "BlankObstacle",
-			Group = "Combat_Menu_TraitTray",
-			X = ScreenCenterX,
-			Y = anchorY + 22,
+	local slotParams = {
+		{
+			key         = "RegularBoon",
+			choiceType  = "RegularBoon",
+			title       = "Boon",
+			cost        = regularCost,
+			preview     = buildPreviewLine( screen.PreviewedInjections.RegularBoon ),
+		},
+		{
+			key         = "EnhancedBoon",
+			choiceType  = "EnhancedBoon",
+			title       = "Enhanced Boon",
+			cost        = enhancedCost,
+			preview     = buildPreviewLine( screen.PreviewedInjections.EnhancedBoon ),
+		},
+		{
+			key         = "Hammer",
+			choiceType  = "Hammer",
+			title       = "Daedalus Hammer",
+			cost        = hammerCost,
+			preview     = buildPreviewLine( screen.PreviewedInjections.Hammer ),
+		},
+	}
+
+	for i, p in ipairs( slotParams ) do
+		buildChoiceSlot( screen, p.key, {
+			X          = ScreenCenterX,
+			Y          = firstSlotY + (i - 1) * slotSpacing,
+			Scale      = slotScale,
+			RarityAnim = ProvokeMod.UI.RarityAnim[p.choiceType],
+			Door       = door,
+			ChoiceType = p.choiceType,
+			Title      = p.title,
+			TitleColor = ProvokeMod.UI.ChoiceColor[p.choiceType],
+			Cost       = p.cost,
+			Preview    = p.preview,
+			IsCurrent  = (currentChoiceType == p.choiceType),
 		})
-		CreateTextBox({
-			Id = screen.Components[previewKey].Id,
-			Text = buildPreviewLine( injection ),
-			FontSize = 13,
-			Color = { 0.82, 0.75, 1.0, 0.8 },
-			Font = "P22UndergroundSCMedium",
-			ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
-			Justification = "Center",
-		})
 	end
 
-	-- Option 1: Regular Boon
-	local regularLabel = "Boon  (+" .. regularCost .. " Fear)"
-	if currentChoiceType == "RegularBoon" then
-		regularLabel = regularLabel .. "  [current]"
-	end
-	screen.Components.RegularBoon = CreateScreenComponent({
-		Name = "ButtonDefault",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = buttonY,
-	})
-	SetScaleX({ Id = screen.Components.RegularBoon.Id, Fraction = 1.25 })
-	screen.Components.RegularBoon.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
-	screen.Components.RegularBoon.Door = door
-	screen.Components.RegularBoon.Screen = screen
-	screen.Components.RegularBoon.ChoiceType = "RegularBoon"
-	CreateTextBox({
-		Id = screen.Components.RegularBoon.Id,
-		Text = regularLabel,
-		FontSize = 18,
-		Color = { 1.0, 1.0, 1.0, 1.0 },
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
-	})
-	spawnPreview( "RegularBoon", buttonY, screen.PreviewedInjections.RegularBoon )
-
-	-- Option 2: Enhanced Boon
-	local enhancedLabel = "Enhanced Boon  (+" .. enhancedCost .. " Fear)"
-	if currentChoiceType == "EnhancedBoon" then
-		enhancedLabel = enhancedLabel .. "  [current]"
-	end
-	screen.Components.EnhancedBoon = CreateScreenComponent({
-		Name = "ButtonDefault",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = buttonY + buttonSpacing,
-	})
-	SetScaleX({ Id = screen.Components.EnhancedBoon.Id, Fraction = 1.25 })
-	screen.Components.EnhancedBoon.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
-	screen.Components.EnhancedBoon.Door = door
-	screen.Components.EnhancedBoon.Screen = screen
-	screen.Components.EnhancedBoon.ChoiceType = "EnhancedBoon"
-	CreateTextBox({
-		Id = screen.Components.EnhancedBoon.Id,
-		Text = enhancedLabel,
-		FontSize = 18,
-		Color = { 1.0, 0.85, 0.45, 1.0 },
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
-	})
-	spawnPreview( "EnhancedBoon", buttonY + buttonSpacing, screen.PreviewedInjections.EnhancedBoon )
-
-	-- Option 3: Hammer
-	local hammerLabel = "Daedalus Hammer  (+" .. hammerCost .. " Fear)"
-	if currentChoiceType == "Hammer" then
-		hammerLabel = hammerLabel .. "  [current]"
-	end
-	screen.Components.Hammer = CreateScreenComponent({
-		Name = "ButtonDefault",
-		Group = "Combat_Menu_TraitTray",
-		X = ScreenCenterX,
-		Y = buttonY + buttonSpacing * 2,
-	})
-	SetScaleX({ Id = screen.Components.Hammer.Id, Fraction = 1.25 })
-	screen.Components.Hammer.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
-	screen.Components.Hammer.Door = door
-	screen.Components.Hammer.Screen = screen
-	screen.Components.Hammer.ChoiceType = "Hammer"
-	CreateTextBox({
-		Id = screen.Components.Hammer.Id,
-		Text = hammerLabel,
-		FontSize = 18,
-		Color = { 1.0, 0.47, 0.20, 1.0 },
-		Font = "P22UndergroundSCMedium",
-		Justification = "Center",
-	})
-	spawnPreview( "Hammer", buttonY + buttonSpacing * 2, screen.PreviewedInjections.Hammer )
+	-- Secondary buttons: Revert (re-provoke only) then Cancel. Small
+	-- ButtonDefault rows below the slot column keep them visually subordinate
+	-- to the three primary choices.
+	local secondaryY = firstSlotY + slotSpacing * 3 + 6
 
 	if isReprovoke then
-		-- Option 4 (re-provoke only): Revert to Original
 		screen.Components.Revert = CreateScreenComponent({
-			Name = "ButtonDefault",
+			Name  = "ButtonDefault",
 			Group = "Combat_Menu_TraitTray",
-			X = ScreenCenterX,
-			Y = buttonY + buttonSpacing * 3,
+			X     = ScreenCenterX,
+			Y     = secondaryY,
 		})
-		SetScaleX({ Id = screen.Components.Revert.Id, Fraction = 1.25 })
+		SetScaleX({ Id = screen.Components.Revert.Id, Fraction = 0.95 })
 		screen.Components.Revert.OnPressedFunctionName = "ProvokeMod__OnRevert"
-		screen.Components.Revert.Door = door
+		screen.Components.Revert.Door   = door
 		screen.Components.Revert.Screen = screen
 		CreateTextBox({
-			Id = screen.Components.Revert.Id,
-			Text = "Revert to Original",
-			FontSize = 16,
-			Color = { 0.85, 0.65, 0.65, 0.9 },
-			Font = "P22UndergroundSCMedium",
+			Id           = screen.Components.Revert.Id,
+			Text         = "Revert to Original",
+			FontSize     = 15,
+			Color        = ProvokeMod.UI.DustyRose,
+			Font         = "P22UndergroundSCMedium",
 			Justification = "Center",
 		})
-
-		-- Option 5 (re-provoke only): Keep Choice — dismiss without changing
-		screen.Components.Cancel = CreateScreenComponent({
-			Name = "ButtonDefault",
-			Group = "Combat_Menu_TraitTray",
-			X = ScreenCenterX,
-			Y = buttonY + buttonSpacing * 4,
-		})
-		SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
-		screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
-		screen.Components.Cancel.Screen = screen
-		screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
-		CreateTextBox({
-			Id = screen.Components.Cancel.Id,
-			Text = "Keep Choice",
-			FontSize = 16,
-			Color = { 0.7, 0.7, 0.7, 0.9 },
-			Font = "P22UndergroundSCMedium",
-			Justification = "Center",
-		})
-	else
-		-- Enter Room button — bound to both Cancel and Confirm so the player can
-		-- dismiss with a single quick press of either back or the interact button.
-		screen.Components.Cancel = CreateScreenComponent({
-			Name = "ButtonDefault",
-			Group = "Combat_Menu_TraitTray",
-			X = ScreenCenterX,
-			Y = buttonY + buttonSpacing * 3,
-		})
-		SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 1.25 })
-		screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
-		screen.Components.Cancel.Screen = screen
-		screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
-		CreateTextBox({
-			Id = screen.Components.Cancel.Id,
-			Text = "Don't Provoke",
-			FontSize = 16,
-			Color = { 0.7, 0.7, 0.7, 0.9 },
-			Font = "P22UndergroundSCMedium",
-			Justification = "Center",
-		})
+		secondaryY = secondaryY + 48
 	end
 
-	-- Park the cursor on the bottom "Don't Provoke" / "Keep Choice" button — a
-	-- safe default that closes the menu without spending Fear on an accidental
-	-- confirm. Both paths reuse screen.Components.Cancel, so one line covers
-	-- fresh-provoke and re-provoke. Pattern from BoonInfoLogic.lua:27.
+	screen.Components.Cancel = CreateScreenComponent({
+		Name  = "ButtonDefault",
+		Group = "Combat_Menu_TraitTray",
+		X     = ScreenCenterX,
+		Y     = secondaryY,
+	})
+	SetScaleX({ Id = screen.Components.Cancel.Id, Fraction = 0.95 })
+	screen.Components.Cancel.OnPressedFunctionName = "ProvokeMod__OnCancel"
+	screen.Components.Cancel.Screen        = screen
+	screen.Components.Cancel.ControlHotkeys = { "Cancel", "Confirm" }
+	CreateTextBox({
+		Id           = screen.Components.Cancel.Id,
+		Text         = isReprovoke and "Keep Choice" or "Don't Provoke",
+		FontSize     = 15,
+		Color        = ProvokeMod.UI.GreyText,
+		Font         = "P22UndergroundSCMedium",
+		Justification = "Center",
+	})
+
+	-- Park the cursor on the safe-dismiss button so an accidental Confirm on
+	-- screen-open doesn't spend Fear. Pattern from BoonInfoLogic.lua:27.
 	TeleportCursor({ DestinationId = screen.Components.Cancel.Id, ForceUseCheck = true })
 
 	HandleScreenInput( screen )
