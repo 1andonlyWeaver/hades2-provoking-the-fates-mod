@@ -1251,14 +1251,16 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
-	-- Icons use the same "door-preview" family the game paints on boon doors
-	-- (BoonDropZeusPreview / BoonDropZeusUpgradedPreview / WeaponUpgradePreview),
-	-- so the choice reads as "the boon/hammer that'll be waiting in the next
-	-- room" even though the specific god won't be rolled until TransformDoor.
+	-- Icons use door-preview glyphs vanilla paints on actual boon doors.
+	-- BoonDropChaosPreview is the mystery/bag-shaped Chaos boon preview —
+	-- fits our "unknown god, will be rolled at TransformDoor" semantics
+	-- better than any specific god's icon. (No UpgradedPreview variant
+	-- exists for Chaos; the Epic rarity frame on the Enhanced row carries
+	-- the "upgraded" visual cue instead.)
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonDropZeusPreview"         },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonDropZeusUpgradedPreview" },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"        },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BoonDropChaosPreview" },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BoonDropChaosPreview" },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview" },
 	}
 
 	for i, choice in ipairs( choiceConfigs ) do
