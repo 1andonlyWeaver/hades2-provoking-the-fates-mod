@@ -28,10 +28,12 @@ ProvokeMod.EligibleVows = {
 }
 
 -- ----------------------------------------------------------------------------
--- Playtest logger. Leveled + categorized, routed through the engine's own
--- DebugPrint so output surfaces wherever vanilla debug lines do (loader log
--- file). Threshold is re-read per call so editing config.LogLevel and
--- hot-reloading takes effect immediately.
+-- Playtest logger. Leveled + categorized. Output is routed through Lua's
+-- print(), which Hell2Modding captures into LogOutput.log prefixed with the
+-- plugin name. DebugPrint is NOT used here because the engine gates it behind
+-- /VerboseScriptLogging=true, which is off in the modded build — every
+-- DebugPrint line would be silently dropped. Threshold is re-read per call so
+-- editing config.LogLevel and hot-reloading takes effect immediately.
 -- ----------------------------------------------------------------------------
 ProvokeMod.Log = ProvokeMod.Log or {}
 local LOG_LEVELS = { TRACE = 10, DEBUG = 20, INFO = 30, WARN = 40, ERROR = 50 }
@@ -49,7 +51,7 @@ local function logEmit( level, category, message, kvs )
 			line = line .. string.format( " %s=%s", k, tostring( v ) )
 		end
 	end
-	DebugPrint({ Text = line })
+	print( line )
 end
 
 function ProvokeMod.Log.trace( cat, msg, kvs ) logEmit( "TRACE", cat, msg, kvs ) end
