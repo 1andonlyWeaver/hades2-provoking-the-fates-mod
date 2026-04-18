@@ -88,9 +88,11 @@ end
 -- ============================================================================
 
 -- Fear cost for a provocation. `effectiveCount` is the 1-indexed position this
--- provocation will occupy among same-type provocations (1 = first ever of that
--- type). If nil, defaults to "next available slot" = current ProvokedCounts + 1.
--- Formula: base + penalty * effectiveCount².
+-- provocation will occupy among ALL provocations in the run (1 = first
+-- provocation ever this run, regardless of type). If nil, defaults to
+-- ProvocationCount + 1 (the slot this call would consume if committed now).
+-- Formula: base + penalty * effectiveCount². Greed is global, so cross-type
+-- spam ramps as fast as same-type spam.
 function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
@@ -101,8 +103,8 @@ function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 		baseCost = config.Cost_Hammer
 	end
 	if effectiveCount == nil then
-		local typeCount = (ProvokeMod.RunState.ProvokedCounts and ProvokeMod.RunState.ProvokedCounts[choiceType]) or 0
-		effectiveCount = typeCount + 1
+		local totalCount = (ProvokeMod.RunState and ProvokeMod.RunState.ProvocationCount) or 0
+		effectiveCount = totalCount + 1
 	end
 	effectiveCount = math.max( 1, effectiveCount )
 	local greedBonus = 0
@@ -387,9 +389,10 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 
 	local extension = 0
 	if config.GreedExtendsDuration then
-		-- ProvokedCounts[choiceType] already includes the current provocation
-		-- (incremented in TransformDoor). Extension = prior same-type count.
-		local count = ProvokeMod.RunState.ProvokedCounts[choiceType] or 1
+		-- Greed is global: extension = prior provocation count across all types.
+		-- TransformDoor already incremented ProvocationCount for this pick, so
+		-- subtract 1 to count only the provocations that came before it.
+		local count = (ProvokeMod.RunState and ProvokeMod.RunState.ProvocationCount) or 1
 		extension = math.max( 0, count - 1 )
 	end
 
@@ -914,15 +917,14 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return
 	end
 
-	-- Compute the effective 1-indexed count per button. On re-provoke, selecting
-	-- the same type reverts-then-adds so position is unchanged; a different type
-	-- reverts the old type but adds this one fresh at (current count + 1).
-	local function effectiveCountFor( choiceType )
-		local typeCount = ProvokeMod.RunState.ProvokedCounts[choiceType] or 0
-		if isReprovoke and currentChoiceType == choiceType then
-			return math.max( 1, typeCount )
-		end
-		return typeCount + 1
+	-- Greed tracks total provocations in the run, so every button shows the
+	-- same next-slot position. On re-provoke the selection reverts-then-adds,
+	-- so ProvocationCount is unchanged and the new choice occupies the same
+	-- slot the original choice did.
+	local totalCount = ProvokeMod.RunState.ProvocationCount or 0
+	local nextPosition = isReprovoke and math.max( 1, totalCount ) or (totalCount + 1)
+	local function effectiveCountFor( _choiceType )
+		return nextPosition
 	end
 
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
