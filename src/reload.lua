@@ -1180,9 +1180,11 @@ function ProvokeMod.OpenProvocationScreen( door )
 		})
 	end
 
-	-- Park the cursor on the first option so the menu is immediately navigable
-	-- without requiring a stick/arrow nudge. Pattern from BoonInfoLogic.lua:27.
-	TeleportCursor({ DestinationId = screen.Components.RegularBoon.Id, ForceUseCheck = true })
+	-- Park the cursor on the bottom "Don't Provoke" / "Keep Choice" button — a
+	-- safe default that closes the menu without spending Fear on an accidental
+	-- confirm. Both paths reuse screen.Components.Cancel, so one line covers
+	-- fresh-provoke and re-provoke. Pattern from BoonInfoLogic.lua:27.
+	TeleportCursor({ DestinationId = screen.Components.Cancel.Id, ForceUseCheck = true })
 
 	HandleScreenInput( screen )
 end
