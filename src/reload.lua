@@ -186,10 +186,10 @@ function ProvokeMod.SpawnProvokeHint()
 		X = ScreenCenterX,
 		Y = textY,
 	})
-	-- {!I} asks the game's glyph system for the Interact button icon.
+	-- {I} is the engine macro for the current Interact-button glyph (KBM or gamepad).
 	CreateTextBox({
 		Id = hintId,
-		Text = "Hold {!I} to Provoke the Fates",
+		Text = "Hold {I} to Provoke the Fates",
 		Font = "P22UndergroundSCHeavy",
 		FontSize = 22,
 		Color = { 1, 1, 1, 1 },
