@@ -908,6 +908,15 @@ ProvokeMod.UI = {
 	-- Matches ElementalPromptScreenData.lua:44-49.
 	MythmakerTitleShadow  = { 0.05, 0.04, 0.04, 1.0 },
 	MythmakerTitleOutline = { 0.11, 0.10, 0.09, 1.0 },
+	-- Rarity-tier backing animations for the BoonSlotBase rows — same pipeline
+	-- UpgradeChoiceData.lua:27-32 uses for boon pickup. The tier we assign per
+	-- choice climbs with the cost: Regular -> Rare, Enhanced -> Epic, Hammer ->
+	-- Legendary, so the visual weight of each scroll matches what it charges.
+	RarityAnim = {
+		RegularBoon  = "BoonSlotRare",
+		EnhancedBoon = "BoonSlotEpic",
+		Hammer       = "BoonSlotLegendary",
+	},
 }
 
 -- Shown in place of the choice menu when every eligible vow is already at its
@@ -1003,106 +1012,106 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice card. Each card is a BaseInteractableButton rendered with
--- the vanilla "Testament" scroll graphic (GUI\Screens\Shrine\Testament) —
--- the same asset the Shrine bounty board paints its oath scrolls with. Title,
--- cost, preview, and the optional CURRENT badge are attached as offset text
--- boxes on the card itself. BaseInteractableButton doesn't animate a built-in
--- hover state, so we wire OnMouseOverFunctionName/OnMouseOffFunctionName to
--- our own handlers that tint the scroll on focus.
+-- Build one choice row matching the vanilla boon-pickup layout
+-- (UpgradeChoiceLogic.lua / UpgradeChoiceData.lua). Each row is a
+-- BoonSlotBase button with a rarity-tier backing animation, paired with a
+-- separate Highlight BlankObstacle that the hover handler drives via
+-- SetAnimation("BoonSlotHighlight"). Same wide-row layout vanilla uses:
+-- icon slot on the far left (left empty for now — room reserved so future
+-- icon additions slot in without a rework), title + cost on the top row,
+-- description wrapping across the lower half.
 local function buildChoiceCard( screen, key, params )
-	local card = CreateScreenComponent({
-		Name  = "BaseInteractableButton",
+	-- Highlight overlay sits at the same coordinates as the slot. Alpha 0
+	-- by default; the MouseOver handler animates "BoonSlotHighlight" on it
+	-- (UpgradeChoiceLogic.lua:1355 uses this exact pattern).
+	local highlight = CreateScreenComponent({
+		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = params.X,
 		Y     = params.Y,
 	})
-	SetAnimation({ Name = "GUI\\Screens\\Shrine\\Testament", DestinationId = card.Id })
-	SetScale({ Id = card.Id, Fraction = params.Scale })
-	card.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
-	card.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
-	card.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
-	card.Door       = params.Door
-	card.Screen     = screen
-	card.ChoiceType = params.ChoiceType
-	card.BaseScale  = params.Scale
-	screen.Components[key] = card
+	SetAlpha({ Id = highlight.Id, Fraction = 0.0 })
+	screen.Components[key .. "Highlight"] = highlight
 
-	-- Title centered near the top of the scroll.
+	-- The interactive slot itself. BoonSlotBase is the vanilla boon row graphic;
+	-- SetAnimation swaps in the rarity frame (Rare / Epic / Legendary).
+	local slot = CreateScreenComponent({
+		Name  = "BoonSlotBase",
+		Group = "Combat_Menu_TraitTray",
+		X     = params.X,
+		Y     = params.Y,
+	})
+	SetAnimation({ Name = params.RarityAnim, DestinationId = slot.Id })
+	slot.OnPressedFunctionName   = "ProvokeMod__OnSelectChoice"
+	slot.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
+	slot.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
+	slot.Door       = params.Door
+	slot.Screen     = screen
+	slot.ChoiceType = params.ChoiceType
+	slot.Highlight  = highlight
+	screen.Components[key] = slot
+
+	-- Title in the upper-left quadrant of the slot (vanilla TitleText offset).
 	CreateTextBox({
-		Id               = card.Id,
-		Text             = params.Title,
-		OffsetY          = -120,
-		Width            = 280,
-		FontSize         = 22,
-		Color            = params.TitleColor,
-		Font             = "P22UndergroundSCMedium",
-		ShadowBlur       = 0,
-		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset     = { 0, 3 },
-		OutlineThickness = 3,
-		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Center",
+		Id            = slot.Id,
+		Text          = params.Title,
+		OffsetX       = -420,
+		OffsetY       = -60,
+		FontSize      = 28,
+		Color         = params.TitleColor,
+		Font          = "P22UndergroundSCMedium",
+		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+		Justification = "Left",
 	})
 
-	-- Cost sits under the title — the price anchor of this scroll.
+	-- Cost mirrored on the right side (vanilla RarityText/CostText offset).
 	CreateTextBox({
-		Id               = card.Id,
-		Text             = "+" .. tostring( params.Cost ) .. " Fear",
-		OffsetY          = -78,
-		Width            = 280,
-		FontSize         = 24,
-		Color            = ProvokeMod.UI.Violet,
-		Font             = "P22UndergroundSCMedium",
-		ShadowBlur       = 0,
-		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset     = { 0, 3 },
-		OutlineThickness = 3,
-		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Center",
+		Id            = slot.Id,
+		Text          = "+" .. tostring( params.Cost ) .. " Fear",
+		OffsetX       = 410,
+		OffsetY       = -60,
+		FontSize      = 28,
+		Color         = ProvokeMod.UI.Violet,
+		Font          = "P22UndergroundSCMedium",
+		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+		Justification = "Right",
 	})
 
-	-- Vow preview fills the lower half of the scroll. Width forces the engine
-	-- to wrap long injections across two or three lines instead of overflowing.
+	-- Description area. Width 830 matches vanilla DescriptionText (921.5)
+	-- scaled slightly narrower so our shorter "+N% foe damage" previews don't
+	-- look lost across the full slot. LatoMedium matches the vanilla body
+	-- font used for boon descriptions.
 	CreateTextBox({
-		Id                = card.Id,
-		Text              = params.Preview,
-		OffsetY           = 10,
-		Width             = 260,
-		LineSpacingBottom = 4,
-		FontSize          = 15,
-		Color             = ProvokeMod.UI.PaleLavender,
-		Font              = "P22UndergroundSCMedium",
-		ShadowBlur        = 0,
-		ShadowColor       = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset      = { 0, 2 },
-		OutlineThickness  = 2,
-		OutlineColor      = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification     = "Center",
+		Id                    = slot.Id,
+		Text                  = params.Preview,
+		OffsetX               = -420,
+		OffsetY               = -20,
+		Width                 = 830,
+		LineSpacingBottom     = 5,
+		FontSize              = 20,
+		Color                 = { 0.85, 0.80, 1.0, 0.95 },
+		Font                  = "LatoMedium",
+		ShadowBlur            = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+		Justification         = "Left",
 		VerticalJustification = "Top",
 	})
 
-	-- CURRENT badge appears near the bottom of the scroll on the player's
-	-- current provocation when re-opening the screen.
+	-- CURRENT badge — anchored bottom-right of the slot on re-provoke.
 	if params.IsCurrent then
 		CreateTextBox({
-			Id               = card.Id,
-			Text             = "CURRENT",
-			OffsetY          = 120,
-			Width            = 280,
-			FontSize         = 14,
-			Color            = ProvokeMod.UI.CurrentAmber,
-			Font             = "P22UndergroundSCHeavy",
-			ShadowBlur       = 0,
-			ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-			ShadowOffset     = { 0, 2 },
-			OutlineThickness = 2,
-			OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-			Justification    = "Center",
+			Id            = slot.Id,
+			Text          = "CURRENT",
+			OffsetX       = 410,
+			OffsetY       = 65,
+			FontSize      = 17,
+			Color         = ProvokeMod.UI.CurrentAmber,
+			Font          = "P22UndergroundSCHeavy",
+			ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+			Justification = "Right",
 		})
 	end
 
-	return card
+	return slot
 end
 
 function ProvokeMod.OpenProvocationScreen( door )
@@ -1136,14 +1145,9 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
 	OnScreenOpened( screen )
 
-	local menuY = ScreenCenterY + 25
-
-	-- Strong full-screen dim is the only backdrop — the vanilla "TestamentBacking"
-	-- we tried before turned out to be a painted sigil, not a wide frame, and
-	-- every proper framing asset we tested either distorts when stretched
-	-- (MythmakerBoxDefault) or collides with combat HUD overlays. Matching the
-	-- boon-pickup / shop approach of a pure dim + focused presentation is the
-	-- safer path: the Testament scrolls are the focal point.
+	-- Strong full-screen dim is the only backdrop — we mirror the vanilla
+	-- boon-pickup screen, which also takes over fullscreen with a dim + the
+	-- three BoonSlotBase rows as the focal content, no modal frame.
 	screen.Components.BackgroundTint = CreateScreenComponent({
 		Name  = "rectangle01",
 		Group = "Combat_Menu_TraitTray_Backing",
@@ -1153,18 +1157,19 @@ function ProvokeMod.OpenProvocationScreen( door )
 	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
 	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.72 } })
 
-	-- Header: title + subtitle on one component, stacked via OffsetY. Heavy
-	-- outline + shadow matches Mythmaker-family titles (ElementalPromptScreenData.lua:44).
+	-- Header: title + subtitle on one component, stacked via OffsetY. Sits
+	-- above the top boon row. Heavy outline + shadow matches Mythmaker-family
+	-- titles (ElementalPromptScreenData.lua:44).
 	screen.Components.Header = CreateScreenComponent({
 		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = ScreenCenterX,
-		Y     = menuY - 210,
+		Y     = ScreenCenterY - 355,
 	})
 	CreateTextBox({
 		Id               = screen.Components.Header.Id,
 		Text             = "Provoke the Fates",
-		FontSize         = 34,
+		FontSize         = 38,
 		Color            = ProvokeMod.UI.Violet,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1179,8 +1184,8 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Text             = isReprovoke
 			and "Change your choice, or revert the door."
 			or  "Upgrade this reward. The Fates will retaliate.",
-		OffsetY          = 44,
-		FontSize         = 17,
+		OffsetY          = 48,
+		FontSize         = 18,
 		Color            = ProvokeMod.UI.MutedLavender,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1223,14 +1228,12 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three Testament-scroll cards fanned out horizontally. Scale 1.3 gives
-	-- the parchment enough surface for the title + cost + wrapped preview to
-	-- breathe; spacing matches so the cards overlap their frames slightly
-	-- without crowding each other's text.
-	local cardScale   = 1.3
-	local cardSpacing = 340
-	local cardRowY    = menuY
-	local centerIndex = 2  -- middle card sits on ScreenCenterX
+	-- Three BoonSlotBase rows stacked vertically at vanilla boon-pickup
+	-- cadence (UpgradeChoiceLogic.lua uses ButtonSpacingY = 256; we use 230
+	-- to keep the whole screen a touch more compact since our descriptions
+	-- are shorter than full boon tooltips).
+	local rowSpacing = 230
+	local firstRowY  = ScreenCenterY - 230
 
 	local cardParams = {
 		{
@@ -1258,9 +1261,9 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	for i, p in ipairs( cardParams ) do
 		buildChoiceCard( screen, p.key, {
-			X          = ScreenCenterX + (i - centerIndex) * cardSpacing,
-			Y          = cardRowY,
-			Scale      = cardScale,
+			X          = ScreenCenterX,
+			Y          = firstRowY + (i - 1) * rowSpacing,
+			RarityAnim = ProvokeMod.UI.RarityAnim[p.choiceType],
 			Door       = door,
 			ChoiceType = p.choiceType,
 			Title      = p.title,
@@ -1271,9 +1274,9 @@ function ProvokeMod.OpenProvocationScreen( door )
 		})
 	end
 
-	-- Secondary buttons below the card row. Revert (re-provoke only) then
-	-- Cancel, stacked vertically to stay visually subordinate to the scrolls.
-	local secondaryY = cardRowY + 215
+	-- Secondary buttons below the last row. Revert (re-provoke only) then
+	-- Cancel, stacked vertically below the third slot.
+	local secondaryY = firstRowY + rowSpacing * 3 + 30
 
 	if isReprovoke then
 		screen.Components.Revert = CreateScreenComponent({
@@ -1377,19 +1380,24 @@ game.ProvokeMod__OnRevert = function( screen, button )
 	ProvokeMod.CloseProvocationScreen( screen )
 end
 
--- Manual hover highlight for the Testament-scroll cards. BaseInteractableButton
--- doesn't drive its own hover animation, so on cursor-over we scale the scroll
--- up slightly and brighten it; on cursor-off we reset.
+-- Hover highlight for the boon-style choice rows. BoonSlotBase supports
+-- cursor focus natively but the highlight effect is painted on a separate
+-- overlay component (vanilla UpgradeChoiceLogic.lua:1355). We mirror that:
+-- on mouseover animate "BoonSlotHighlight" on the Highlight BlankObstacle;
+-- on mouseoff play "BoonHighlightOut" to reverse the animation.
 game.ProvokeMod__OnCardMouseOver = function( screen, button )
-	PlaySound({ Name = "/SFX/Menu Sounds/GeneralWhooshMENU" })
-	local focus = (button.BaseScale or 1.0) * 1.08
-	SetScale({ Id = button.Id, Fraction = focus })
-	SetColor({ Id = button.Id, Color = { 1.25, 1.15, 1.35, 1.0 } })
+	if button and button.Id then
+		PlaySound({ Name = "/SFX/Menu Sounds/GodBoonMenuToggle", Id = button.Id })
+	end
+	if button and button.Highlight and button.Highlight.Id then
+		SetAnimation({ DestinationId = button.Highlight.Id, Name = "BoonSlotHighlight" })
+	end
 end
 
 game.ProvokeMod__OnCardMouseOff = function( screen, button )
-	SetScale({ Id = button.Id, Fraction = button.BaseScale or 1.0 })
-	SetColor({ Id = button.Id, Color = { 1.0, 1.0, 1.0, 1.0 } })
+	if button and button.Highlight and button.Highlight.Id then
+		SetAnimation({ DestinationId = button.Highlight.Id, Name = "BoonHighlightOut" })
+	end
 end
 
 -- ============================================================================
