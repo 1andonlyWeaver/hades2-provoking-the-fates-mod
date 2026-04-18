@@ -1012,32 +1012,34 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice row using the same ButtonDefault the vanilla Mythmaker
--- prompts (StoryResetData, ElementalPromptScreenData) use inside a
--- MythmakerBoxDefault frame. Title / cost / preview / optional "CURRENT"
--- badge are attached as offset text boxes on the same Id so they inherit
--- mouse-over focus and slide together if the row repositions.
-local function buildChoiceSlot( screen, key, params )
-	local slot = CreateScreenComponent({
-		Name  = "ButtonDefault",
+-- Build one choice card. Each card is a BaseInteractableButton rendered with
+-- the vanilla "Testament" scroll graphic (GUI\Screens\Shrine\Testament) —
+-- the same asset the Shrine bounty board paints its oath scrolls with, which
+-- matches the Mythmaker/Oath ritual theme the mod is built around. Title,
+-- cost, preview, and the optional CURRENT badge are attached as offset text
+-- boxes on the card itself so clicking / cursor-focusing the card picks up
+-- the whole stack.
+local function buildChoiceCard( screen, key, params )
+	local card = CreateScreenComponent({
+		Name  = "BaseInteractableButton",
 		Group = "Combat_Menu_TraitTray",
 		X     = params.X,
 		Y     = params.Y,
 	})
-	SetScaleX({ Id = slot.Id, Fraction = params.ScaleX })
-	slot.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
-	slot.Door       = params.Door
-	slot.Screen     = screen
-	slot.ChoiceType = params.ChoiceType
-	screen.Components[key] = slot
+	SetAnimation({ Name = "GUI\\Screens\\Shrine\\Testament", DestinationId = card.Id })
+	SetScale({ Id = card.Id, Fraction = params.Scale })
+	card.OnPressedFunctionName = "ProvokeMod__OnSelectChoice"
+	card.Door       = params.Door
+	card.Screen     = screen
+	card.ChoiceType = params.ChoiceType
+	screen.Components[key] = card
 
-	-- Title on the left, with Mythmaker-style heavy outline so it reads
-	-- against the violet frame instead of blurring into the button surface.
+	-- Title centered near the top of the card.
 	CreateTextBox({
-		Id               = slot.Id,
+		Id               = card.Id,
 		Text             = params.Title,
-		OffsetX          = -170,
-		OffsetY          = -10,
+		OffsetY          = -88,
+		Width            = 210,
 		FontSize         = 20,
 		Color            = params.TitleColor,
 		Font             = "P22UndergroundSCMedium",
@@ -1046,16 +1048,16 @@ local function buildChoiceSlot( screen, key, params )
 		ShadowOffset     = { 0, 3 },
 		OutlineThickness = 3,
 		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Left",
+		Justification    = "Center",
 	})
 
-	-- Cost on the right. Same outline treatment as the title.
+	-- Cost sits under the title, the visual anchor of the "price" on this card.
 	CreateTextBox({
-		Id               = slot.Id,
+		Id               = card.Id,
 		Text             = "+" .. tostring( params.Cost ) .. " Fear",
-		OffsetX          = 170,
-		OffsetY          = -10,
-		FontSize         = 18,
+		OffsetY          = -55,
+		Width            = 210,
+		FontSize         = 22,
 		Color            = ProvokeMod.UI.Violet,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1063,15 +1065,18 @@ local function buildChoiceSlot( screen, key, params )
 		ShadowOffset     = { 0, 3 },
 		OutlineThickness = 3,
 		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Right",
+		Justification    = "Center",
 	})
 
-	-- Vow preview line under the title inside the row.
+	-- Vow preview fills the lower half of the scroll. Width = 200 forces the
+	-- engine to wrap long injections (e.g. "+7% foe damage, +2 shield per foe")
+	-- across two or three lines instead of overflowing the card.
 	CreateTextBox({
-		Id               = slot.Id,
+		Id               = card.Id,
 		Text             = params.Preview,
-		OffsetX          = -170,
-		OffsetY          = 16,
+		OffsetY          = 10,
+		Width            = 200,
+		LineSpacingBottom = 3,
 		FontSize         = 14,
 		Color            = ProvokeMod.UI.PaleLavender,
 		Font             = "P22UndergroundSCMedium",
@@ -1080,17 +1085,19 @@ local function buildChoiceSlot( screen, key, params )
 		ShadowOffset     = { 0, 2 },
 		OutlineThickness = 2,
 		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Left",
+		Justification    = "Center",
+		VerticalJustification = "Top",
 	})
 
-	-- "CURRENT" badge replaces the old inline "[current]" label on re-provoke.
+	-- CURRENT badge appears at the base of the scroll on the player's current
+	-- provocation when re-opening the screen.
 	if params.IsCurrent then
 		CreateTextBox({
-			Id               = slot.Id,
+			Id               = card.Id,
 			Text             = "CURRENT",
-			OffsetX          = 170,
-			OffsetY          = 18,
-			FontSize         = 12,
+			OffsetY          = 90,
+			Width            = 210,
+			FontSize         = 13,
 			Color            = ProvokeMod.UI.CurrentAmber,
 			Font             = "P22UndergroundSCHeavy",
 			ShadowBlur       = 0,
@@ -1098,11 +1105,11 @@ local function buildChoiceSlot( screen, key, params )
 			ShadowOffset     = { 0, 2 },
 			OutlineThickness = 2,
 			OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-			Justification    = "Right",
+			Justification    = "Center",
 		})
 	end
 
-	return slot
+	return card
 end
 
 function ProvokeMod.OpenProvocationScreen( door )
@@ -1159,23 +1166,23 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Y     = menuY,
 	})
 	SetAnimation({ Name = "MythmakerBoxDefault", DestinationId = screen.Components.Frame.Id })
-	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 0.85 })
-	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.0 or 0.82 })
+	-- Wider frame than the vanilla prompts — we're fanning three Testament
+	-- scrolls out horizontally instead of stacking text rows vertically.
+	SetScaleX({ Id = screen.Components.Frame.Id, Fraction = 1.35 })
+	SetScaleY({ Id = screen.Components.Frame.Id, Fraction = isReprovoke and 1.05 or 0.92 })
 
-	-- Header: title + subtitle on one component, stacked via OffsetY. Title
-	-- uses Mythmaker-style heavy outline + shadow so it reads on the frame's
-	-- violet brocade without a separate backing (same treatment vanilla
-	-- ElementalPromptScreenData applies to its TitleText at FontSize 40).
+	-- Header: title + subtitle on one component, stacked via OffsetY. Heavy
+	-- outline + shadow matches Mythmaker-family titles (ElementalPromptScreenData.lua:44).
 	screen.Components.Header = CreateScreenComponent({
 		Name  = "BlankObstacle",
 		Group = "Combat_Menu_TraitTray",
 		X     = ScreenCenterX,
-		Y     = menuY - 215,
+		Y     = menuY - 195,
 	})
 	CreateTextBox({
 		Id               = screen.Components.Header.Id,
 		Text             = "Provoke the Fates",
-		FontSize         = 32,
+		FontSize         = 34,
 		Color            = ProvokeMod.UI.Violet,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1190,8 +1197,8 @@ function ProvokeMod.OpenProvocationScreen( door )
 		Text             = isReprovoke
 			and "Change your choice, or revert the door."
 			or  "Upgrade this reward. The Fates will retaliate.",
-		OffsetY          = 40,
-		FontSize         = 16,
+		OffsetY          = 44,
+		FontSize         = 17,
 		Color            = ProvokeMod.UI.MutedLavender,
 		Font             = "P22UndergroundSCMedium",
 		ShadowBlur       = 0,
@@ -1234,13 +1241,13 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three choice rows, stacked vertically. Use a wide ButtonDefault scale
-	-- so the title + cost + preview fit inside the same surface.
-	local slotScaleX  = 1.35
-	local slotSpacing = 82
-	local firstSlotY  = menuY - 110
+	-- Three Testament-scroll cards fanned out horizontally across the frame.
+	local cardScale   = 0.9
+	local cardSpacing = 235
+	local cardRowY    = menuY - 20
+	local centerIndex = 2  -- middle card sits on ScreenCenterX
 
-	local slotParams = {
+	local cardParams = {
 		{
 			key         = "RegularBoon",
 			choiceType  = "RegularBoon",
@@ -1264,11 +1271,11 @@ function ProvokeMod.OpenProvocationScreen( door )
 		},
 	}
 
-	for i, p in ipairs( slotParams ) do
-		buildChoiceSlot( screen, p.key, {
-			X          = ScreenCenterX,
-			Y          = firstSlotY + (i - 1) * slotSpacing,
-			ScaleX     = slotScaleX,
+	for i, p in ipairs( cardParams ) do
+		buildChoiceCard( screen, p.key, {
+			X          = ScreenCenterX + (i - centerIndex) * cardSpacing,
+			Y          = cardRowY,
+			Scale      = cardScale,
 			Door       = door,
 			ChoiceType = p.choiceType,
 			Title      = p.title,
@@ -1279,10 +1286,9 @@ function ProvokeMod.OpenProvocationScreen( door )
 		})
 	end
 
-	-- Secondary buttons: Revert (re-provoke only) then Cancel. Small
-	-- ButtonDefault rows below the slot column keep them visually subordinate
-	-- to the three primary choices.
-	local secondaryY = firstSlotY + slotSpacing * 3 + 6
+	-- Secondary buttons below the card row. Revert (re-provoke only) then
+	-- Cancel, stacked vertically to stay visually subordinate to the scrolls.
+	local secondaryY = cardRowY + 175
 
 	if isReprovoke then
 		screen.Components.Revert = CreateScreenComponent({
