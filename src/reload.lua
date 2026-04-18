@@ -880,6 +880,8 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 		Justification = "Center",
 	})
 
+	TeleportCursor({ DestinationId = screen.Components.Dismiss.Id, ForceUseCheck = true })
+
 	HandleScreenInput( screen )
 end
 
@@ -1177,6 +1179,10 @@ function ProvokeMod.OpenProvocationScreen( door )
 			Justification = "Center",
 		})
 	end
+
+	-- Park the cursor on the first option so the menu is immediately navigable
+	-- without requiring a stick/arrow nudge. Pattern from BoonInfoLogic.lua:27.
+	TeleportCursor({ DestinationId = screen.Components.RegularBoon.Id, ForceUseCheck = true })
 
 	HandleScreenInput( screen )
 end
