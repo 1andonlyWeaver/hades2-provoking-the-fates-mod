@@ -41,4 +41,9 @@ return {
   -- to the vanilla door behavior unchanged. 0.4–0.6 feels natural; lower
   -- values risk accidental triggers when the player mashes Interact.
   ProvokeHoldSeconds = 0.5;
+
+  -- Playtest logging verbosity: TRACE | DEBUG | INFO | WARN | ERROR.
+  -- INFO is the quiet default for normal play. Raise to DEBUG/TRACE to watch
+  -- door proximity, hold-gate outcomes, and per-stack decay in detail.
+  LogLevel = "INFO";
 }

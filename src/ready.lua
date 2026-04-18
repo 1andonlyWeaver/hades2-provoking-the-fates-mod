@@ -12,6 +12,7 @@
 -- ============================================================================
 modutil.mod.Path.Wrap( "StartNewRun", function( base, prevRun, args )
 	ProvokeMod.ResetRunState()
+	if ProvokeMod.Log then ProvokeMod.Log.info( "run", "start" ) end
 	return base( prevRun, args )
 end, mod )
 
@@ -19,6 +20,14 @@ end, mod )
 -- Hook 2: Safety cleanup on hero death
 -- ============================================================================
 modutil.mod.Path.Wrap( "KillHero", function( base, victim, triggerArgs )
+	if ProvokeMod.Log then
+		local stacks = ProvokeMod.RunState and ProvokeMod.RunState.ActiveFearStacks or {}
+		ProvokeMod.Log.info( "run", "death", {
+			liveStacks       = #stacks,
+			fearWasActive    = (ProvokeMod.RunState and ProvokeMod.RunState.TransientFearActive) or false,
+			provocationCount = (ProvokeMod.RunState and ProvokeMod.RunState.ProvocationCount) or 0,
+		} )
+	end
 	ProvokeMod.RemoveTransientFear()
 	ProvokeMod.ResetRunState()
 	return base( victim, triggerArgs )
@@ -40,6 +49,7 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 		if IsControlDown({ Name = "Use" }) or IsControlDown({ Name = "Interact" }) then
 			local notifyName = ProvokeMod.HoldReleaseNotifyName or "ProvokeMod__HoldRelease"
 			local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
+			ProvokeMod.Log.debug( "gate", "armed", { threshold = threshold, objectId = door.ObjectId } )
 			NotifyOnControlReleased({
 				Names   = { "Use", "Interact" },
 				Notify  = notifyName,
@@ -54,10 +64,12 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 				-- so the player can re-interact with this door after the menu closes
 				-- (AttemptUseDoor early-returns at RoomLogic.lua:751 when InUse).
 				door.InUse = false
+				ProvokeMod.Log.debug( "gate", "hold (open menu)", { objectId = door.ObjectId } )
 				ProvokeMod.OpenProvocationScreen( door )
 				return
 			end
 			-- Released before threshold: short tap, continue with normal Proceed.
+			ProvokeMod.Log.debug( "gate", "tap (proceed)", { objectId = door.ObjectId } )
 		end
 	end
 

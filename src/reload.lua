@@ -27,6 +27,37 @@ ProvokeMod.EligibleVows = {
 	"EnemyEliteShrineUpgrade",
 }
 
+-- ----------------------------------------------------------------------------
+-- Playtest logger. Leveled + categorized, routed through the engine's own
+-- DebugPrint so output surfaces wherever vanilla debug lines do (loader log
+-- file). Threshold is re-read per call so editing config.LogLevel and
+-- hot-reloading takes effect immediately.
+-- ----------------------------------------------------------------------------
+ProvokeMod.Log = ProvokeMod.Log or {}
+local LOG_LEVELS = { TRACE = 10, DEBUG = 20, INFO = 30, WARN = 40, ERROR = 50 }
+
+local function currentLogThreshold()
+	local name = (config and config.LogLevel) or "INFO"
+	return LOG_LEVELS[name] or LOG_LEVELS.INFO
+end
+
+local function logEmit( level, category, message, kvs )
+	if LOG_LEVELS[level] < currentLogThreshold() then return end
+	local line = string.format( "[ProvokeMod][%s][%s] %s", level, category, message or "" )
+	if kvs then
+		for k, v in pairs( kvs ) do
+			line = line .. string.format( " %s=%s", k, tostring( v ) )
+		end
+	end
+	DebugPrint({ Text = line })
+end
+
+function ProvokeMod.Log.trace( cat, msg, kvs ) logEmit( "TRACE", cat, msg, kvs ) end
+function ProvokeMod.Log.debug( cat, msg, kvs ) logEmit( "DEBUG", cat, msg, kvs ) end
+function ProvokeMod.Log.info ( cat, msg, kvs ) logEmit( "INFO",  cat, msg, kvs ) end
+function ProvokeMod.Log.warn ( cat, msg, kvs ) logEmit( "WARN",  cat, msg, kvs ) end
+function ProvokeMod.Log.error( cat, msg, kvs ) logEmit( "ERROR", cat, msg, kvs ) end
+
 function ProvokeMod.ResetRunState()
 	ProvokeMod.RunState = {
 		ProvocationCount = 0,
@@ -114,18 +145,18 @@ end
 -- Doors are stored in the global MapState.OfferedExitDoors (set by DoUnlockRoomExits).
 function ProvokeMod.FindProvokableDoor()
 	if MapState == nil or MapState.OfferedExitDoors == nil then
-		print("[ProvokeMod] FindProvokableDoor: MapState.OfferedExitDoors is nil")
+		ProvokeMod.Log.warn( "door", "FindProvokableDoor: MapState.OfferedExitDoors is nil" )
 		return nil
 	end
 	local count = 0
 	for _, door in pairs( MapState.OfferedExitDoors ) do
 		count = count + 1
 		if door.ReadyToUse and ProvokeMod.IsProvokableDoor( door ) then
-			print("[ProvokeMod] FindProvokableDoor: found provokable door " .. tostring(door.ObjectId))
+			ProvokeMod.Log.debug( "door", "detected provokable door", { objectId = door.ObjectId, checked = count } )
 			return door
 		end
 	end
-	print("[ProvokeMod] FindProvokableDoor: checked " .. count .. " doors, none provokable")
+	ProvokeMod.Log.debug( "door", "no provokable door in offered exits", { checked = count } )
 	return nil
 end
 
@@ -138,7 +169,7 @@ ProvokeMod.HoldReleaseNotifyName = "ProvokeMod__HoldRelease"
 -- only to track whether a provokable door is present so SpawnProvokeHint is
 -- driven by OnShowUseButton (proximity) without an external listener.
 function ProvokeMod.OnExitsUnlocked()
-	print("[ProvokeMod] OnExitsUnlocked called")
+	ProvokeMod.Log.debug( "room", "exits unlocked" )
 	-- Mark the hint thread as active so DespawnProvokeHint can clear proximity
 	-- state on room exit; the flag is legacy but still guards the hint lifecycle.
 	if ProvokeMod.FindProvokableDoor() ~= nil then
@@ -152,10 +183,16 @@ end
 function ProvokeMod.OnShowUseButton( objectId )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
-	if door == nil then return end
+	if door == nil then
+		ProvokeMod.Log.trace( "door", "show: object not in OfferedExitDoors", { objectId = objectId } )
+		return
+	end
 	if ProvokeMod.IsProvokableDoor( door ) then
 		ProvokeMod.RunState.NearestProvokableDoor = door
+		ProvokeMod.Log.debug( "door", "show (provokable)", { objectId = objectId } )
 		ProvokeMod.SpawnProvokeHint()
+	else
+		ProvokeMod.Log.trace( "door", "show (non-provokable door)", { objectId = objectId } )
 	end
 end
 
@@ -165,6 +202,9 @@ function ProvokeMod.OnHideUseButton( objectId )
 	local nearest = ProvokeMod.RunState.NearestProvokableDoor
 	if nearest and nearest.ObjectId == objectId then
 		ProvokeMod.RunState.NearestProvokableDoor = nil
+		ProvokeMod.Log.debug( "door", "hide (cleared nearest)", { objectId = objectId } )
+	else
+		ProvokeMod.Log.trace( "door", "hide (not nearest)", { objectId = objectId } )
 	end
 end
 
@@ -174,8 +214,10 @@ end
 -- We position ours ~30px below that, so together they read as two stacked options.
 function ProvokeMod.SpawnProvokeHint()
 	if ProvokeMod.RunState.ProvokeHintId ~= nil then
-		return  -- already visible
+		ProvokeMod.Log.trace( "door", "hint_spawn skipped: already visible" )
+		return
 	end
+	ProvokeMod.Log.debug( "door", "hint_spawn" )
 	-- NOTE: CreateScreenObstacle returns the obstacle ID directly (a number), not a table.
 	local textY = ScreenHeight - 38  -- ≈1042; just below the door's {I} Proceed at ≈1010
 	-- No separate InteractBacking — the game's existing backing for "Proceed" covers
@@ -208,6 +250,9 @@ function ProvokeMod.DespawnProvokeHint()
 	if ProvokeMod.RunState.ProvokeHintId then
 		Destroy({ Id = ProvokeMod.RunState.ProvokeHintId })
 		ProvokeMod.RunState.ProvokeHintId = nil
+		ProvokeMod.Log.debug( "door", "hint_despawn" )
+	else
+		ProvokeMod.Log.trace( "door", "hint_despawn (nothing to destroy)" )
 	end
 end
 
@@ -304,6 +349,17 @@ function ProvokeMod.SelectThemedVows( fearCost )
 		end
 	end
 
+	for vowName, ranks in pairs( injections ) do
+		ProvokeMod.Log.debug( "fear", "themed_pick", {
+			vow      = vowName,
+			ranks    = ranks,
+			fearCost = fearCost,
+			splits   = targetCount,
+			poolSize = #pool,
+			overflowDropped = overflow,
+		} )
+	end
+
 	return injections
 end
 
@@ -315,7 +371,7 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 	if injection == nil then
 		-- All vows full at provoke time — the player's "Fear" cannot land.
 		-- Queue nothing; let AllVowsFull block future provocations too.
-		print("[ProvokeMod] QueueFearStack: nil injection, skipping")
+		ProvokeMod.Log.warn( "fear", "QueueFearStack skipped: nil injection (all vows full)", { choiceType = choiceType, fearCost = fearCost } )
 		return
 	end
 	local baseDuration = 1
@@ -344,7 +400,14 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 		FearCost       = fearCost or 0,
 	})
 
-	print("[ProvokeMod] QueueFearStack: " .. choiceType .. " for " .. duration .. " room(s), cost " .. (fearCost or 0))
+	ProvokeMod.Log.info( "fear", "queue stack", {
+		choiceType  = choiceType,
+		duration    = duration,
+		baseDur     = baseDuration,
+		extension   = extension,
+		fearCost    = fearCost or 0,
+		liveStacks  = #ProvokeMod.RunState.ActiveFearStacks,
+	} )
 end
 
 -- Merge all active Fear stacks into a single { [vow] = ranks } injection, then
@@ -355,6 +418,7 @@ function ProvokeMod.ApplyFearStacksToRoom()
 	-- Safety: remove any lingering transient injection from a prior room that
 	-- did not clean up correctly.
 	if ProvokeMod.RunState.TransientFearActive then
+		ProvokeMod.Log.warn( "fear", "idempotent safety: TransientFearActive still set at room entry" )
 		ProvokeMod.RestoreVowsOnly()
 	end
 
@@ -387,10 +451,24 @@ function ProvokeMod.ApplyFearStacksToRoom()
 	ProvokeMod.RunState.TransientFearActive = true
 
 	local vowDetails = {}
+	local totalAdded = 0
 	for vowName, v in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
 		table.insert( vowDetails, vowName .. " +" .. v.AddedRanks .. " (was " .. v.OriginalRank .. ")" )
+		totalAdded = totalAdded + (v.AddedRanks or 0)
 	end
-	print("[ProvokeMod] ApplyFearStacksToRoom: " .. #stacks .. " stack(s), merged vows: " .. table.concat( vowDetails, ", " ))
+	ProvokeMod.Log.info( "fear", "inject stacks into room", {
+		stacks     = #stacks,
+		totalRanks = totalAdded,
+		vowCount   = #vowDetails,
+	} )
+	for vowName, v in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
+		ProvokeMod.Log.debug( "fear", "inject per-vow", {
+			vow      = vowName,
+			baseline = v.OriginalRank,
+			added    = v.AddedRanks,
+			newRank  = v.OriginalRank + v.AddedRanks,
+		} )
+	end
 
 	ProvokeMod.UpdateFearHUD()
 end
@@ -441,15 +519,21 @@ end
 -- Restore ShrineUpgrades to their pre-ApplyFearStacksToRoom ranks. Idempotent.
 -- Does NOT touch stack bookkeeping — use RestoreVowsAndDecayStacks for that.
 function ProvokeMod.RestoreVowsOnly()
-	if not ProvokeMod.RunState.TransientFearActive then return end
+	if not ProvokeMod.RunState.TransientFearActive then
+		ProvokeMod.Log.trace( "fear", "RestoreVowsOnly: no-op (TransientFearActive was false)" )
+		return
+	end
 
+	local restored = 0
 	for vowName, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
 		GameState.ShrineUpgrades[vowName] = vowData.OriginalRank
 		ShrineUpgradeExtractValues( vowName )
+		restored = restored + 1
 	end
 	ProvokeMod.RunState.ActiveTransientVows = {}
 	ProvokeMod.RunState.TransientFearActive = false
 	ProvokeMod.ClearFearHUD()
+	ProvokeMod.Log.trace( "fear", "RestoreVowsOnly complete", { vowsRestored = restored } )
 end
 
 -- Restore vows AND advance stack bookkeeping — drops each active stack's
@@ -460,15 +544,33 @@ function ProvokeMod.RestoreVowsAndDecayStacks()
 
 	local stacks = ProvokeMod.RunState.ActiveFearStacks
 	if stacks == nil then return end
+	local before = #stacks
 	local kept = {}
+	local expired = 0
 	for _, stack in ipairs( stacks ) do
-		stack.RoomsRemaining = stack.RoomsRemaining - 1
+		local was = stack.RoomsRemaining
+		stack.RoomsRemaining = was - 1
+		ProvokeMod.Log.debug( "fear", "stack_decay_tick", {
+			choiceType = stack.ChoiceType,
+			before     = was,
+			after      = stack.RoomsRemaining,
+		} )
 		if stack.RoomsRemaining > 0 then
 			table.insert( kept, stack )
+		else
+			expired = expired + 1
+			ProvokeMod.Log.info( "fear", "stack_expired", {
+				choiceType   = stack.ChoiceType,
+				fearCostPaid = stack.FearCost or 0,
+			} )
 		end
 	end
 	ProvokeMod.RunState.ActiveFearStacks = kept
-	print("[ProvokeMod] RestoreVowsAndDecayStacks: " .. #kept .. " stack(s) remain")
+	ProvokeMod.Log.info( "fear", "restore + decay complete", {
+		stacksBefore = before,
+		stacksAfter  = #kept,
+		expired      = expired,
+	} )
 end
 
 -- Legacy alias: older call sites (KillHero, LeaveRoom safety) invoke
@@ -476,6 +578,35 @@ end
 -- don't accidentally decay stacks on every safety call.
 function ProvokeMod.RemoveTransientFear()
 	ProvokeMod.RestoreVowsOnly()
+end
+
+-- Dump the currently-active fear stacks so the developer can see what Provocations
+-- are still carrying across rooms. `phase` is a short label ("room_start",
+-- "encounter_end", etc.) so lines can be correlated in the log.
+function ProvokeMod.LogFearStackState( phase )
+	local stacks = ProvokeMod.RunState.ActiveFearStacks or {}
+	local totalRanks = 0
+	for _, stack in ipairs( stacks ) do
+		local vowCount, stackRanks = 0, 0
+		for _, ranks in pairs( stack.Injection or {} ) do
+			vowCount   = vowCount + 1
+			stackRanks = stackRanks + ranks
+		end
+		totalRanks = totalRanks + stackRanks
+		ProvokeMod.Log.info( "fear", "stack_state", {
+			phase          = phase,
+			choiceType     = stack.ChoiceType,
+			roomsRemaining = stack.RoomsRemaining,
+			fearCost       = stack.FearCost or 0,
+			vowCount       = vowCount,
+			ranks          = stackRanks,
+		} )
+	end
+	ProvokeMod.Log.info( "fear", "stack_state summary", {
+		phase      = phase,
+		liveStacks = #stacks,
+		totalRanks = totalRanks,
+	} )
 end
 
 -- ============================================================================
@@ -550,7 +681,13 @@ function ProvokeMod.TransformDoor( door, choiceType, previewedInjection )
 	-- Refresh the door's reward preview icon
 	ProvokeMod.RefreshDoorPreview( door )
 
-	print("[ProvokeMod] Transformed door to " .. choiceType .. " (Fear: " .. fearCost .. ")")
+	ProvokeMod.Log.info( "provoke", "transform door", {
+		choiceType        = choiceType,
+		fearCost          = fearCost,
+		objectId          = door.ObjectId,
+		provocationCount  = ProvokeMod.RunState.ProvocationCount,
+		sameTypeCount     = ProvokeMod.RunState.ProvokedCounts[choiceType],
+	} )
 end
 
 -- Revert a provoked door back to its original MetaProgress reward.
@@ -558,7 +695,7 @@ end
 function ProvokeMod.UnTransformDoor( door )
 	local provokeData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	if provokeData == nil or not provokeData.Provoked then
-		print("[ProvokeMod] UnTransformDoor: door not provoked, skipping")
+		ProvokeMod.Log.warn( "provoke", "UnTransformDoor called on un-provoked door", { objectId = door and door.ObjectId } )
 		return
 	end
 
@@ -585,7 +722,12 @@ function ProvokeMod.UnTransformDoor( door )
 	-- Refresh the door's reward preview icon back to the original
 	ProvokeMod.RefreshDoorPreview( door )
 
-	print("[ProvokeMod] UnTransformDoor: reverted door " .. tostring(door.ObjectId))
+	ProvokeMod.Log.debug( "provoke", "revert door", {
+		objectId         = door.ObjectId,
+		choiceType       = typeKey,
+		provocationCount = ProvokeMod.RunState.ProvocationCount,
+		sameTypeCount    = ProvokeMod.RunState.ProvokedCounts[typeKey],
+	} )
 end
 
 -- Compute the animation name for a door's new reward icon from LootData.
@@ -763,6 +905,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- Fear that would silently absorb into nothing. Re-provokes still pass so
 	-- the player can revert or keep an existing choice.
 	if not isReprovoke and ProvokeMod.AllVowsFull() then
+		ProvokeMod.Log.info( "provoke", "blocked: all vows full", { objectId = door.ObjectId } )
 		ProvokeMod.OpenFatesSatisfiedScreen()
 		return
 	end
@@ -844,6 +987,15 @@ function ProvokeMod.OpenProvocationScreen( door )
 		EnhancedBoon = ProvokeMod.SelectThemedVows( enhancedCost ),
 		Hammer       = ProvokeMod.SelectThemedVows( hammerCost ),
 	}
+
+	ProvokeMod.Log.info( "provoke", "open screen", {
+		objectId         = door.ObjectId,
+		isReprovoke      = isReprovoke,
+		currentChoice    = currentChoiceType or "none",
+		regularCost      = regularCost,
+		enhancedCost     = enhancedCost,
+		hammerCost       = hammerCost,
+	} )
 
 	local function buildPreviewLine( injection )
 		if injection == nil then
@@ -1044,6 +1196,10 @@ end
 game.ProvokeMod__OnSelectChoice = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
 	local door = button.Door
+	ProvokeMod.Log.info( "provoke", "select choice", {
+		choiceType = button.ChoiceType,
+		objectId   = door and door.ObjectId,
+	} )
 	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
 	if existingData and existingData.Provoked then
 		ProvokeMod.UnTransformDoor( door )
@@ -1079,6 +1235,8 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 	-- after the last one completes (guards against multi-encounter rooms).
 	ProvokeMod.RunState.RoomEncounterCount = (currentRoom.Encounters and #currentRoom.Encounters) or 1
 	ProvokeMod.RunState.RoomEncountersCompleted = 0
+
+	ProvokeMod.LogFearStackState( "room_start" )
 
 	local stacks = ProvokeMod.RunState.ActiveFearStacks
 	if stacks ~= nil and #stacks > 0 then
@@ -1165,16 +1323,27 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 
 	-- Hint spawning is handled in OnExitsUnlocked (triggered by DoUnlockRoomExits hook),
 	-- which fires after the encounter ends and doors have ReadyToUse = true.
-	print("[ProvokeMod] OnRoomStart complete")
+	ProvokeMod.Log.info( "room", "start complete", {
+		encounters = ProvokeMod.RunState.RoomEncounterCount,
+		stacks     = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
+		totalRanks = ProvokeMod.RunState.LastFearCost or 0,
+	} )
 end
 
 -- Called from EndEncounterEffects wrap before the base function
 function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 	ProvokeMod.RunState.RoomEncountersCompleted = (ProvokeMod.RunState.RoomEncountersCompleted or 0) + 1
 	local expected = ProvokeMod.RunState.RoomEncounterCount or 1
-	if ProvokeMod.RunState.RoomEncountersCompleted >= expected then
+	local isLast   = ProvokeMod.RunState.RoomEncountersCompleted >= expected
+	ProvokeMod.Log.info( "room", "encounter_end", {
+		completed = ProvokeMod.RunState.RoomEncountersCompleted,
+		expected  = expected,
+		isLast    = isLast,
+	} )
+	if isLast then
 		-- Last encounter of this room: restore baseline ranks and decay stacks.
 		ProvokeMod.RestoreVowsAndDecayStacks()
+		ProvokeMod.LogFearStackState( "encounter_end" )
 	end
 	-- LeaveRoom calls RestoreVowsOnly unconditionally as a final safety net.
 end
