@@ -1126,29 +1126,26 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition )
 	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       nextPosition )
 
-	-- Clone the vanilla boon-pickup screen definition so our screen is
-	-- structurally identical to it (same DefaultGroup, ButtonSpacingY,
-	-- per-slot text formats, backdrop components, etc.). Strip the pieces
-	-- that require a real loot source (god portrait, dynamic lighting, icon
-	-- slot) so CreateScreenFromData doesn't error on missing source data.
+	-- Clone the vanilla boon-pickup screen definition and keep every backdrop
+	-- component vanilla uses (OlympusBackground, ShopBackgroundDim, Shop-
+	-- BackgroundGradient, ShopBackground with the Melinoe silhouette, Shop-
+	-- Lighting, SourceIcon, ActionBarBackground, TitleText, FlavorText) so the
+	-- screen reads 1:1 with how a boon pickup looks. Only strip the
+	-- interaction-only components we can't drive without a real loot flow
+	-- (RerollIcon, the side action bars) and supply a generic BackgroundAnimation
+	-- + violet lighting tint for the source-dependent bits vanilla would
+	-- normally get from the god's LootData entry.
 	local screen = DeepCopyTable( ScreenData.UpgradeChoice )
 	screen.Name = "ProvokeFatesScreen"
-	screen.ComponentData.OlympusBackground      = nil
-	screen.ComponentData.ShopBackground         = nil
-	screen.ComponentData.ShopLighting           = nil
-	screen.ComponentData.ShopLightingMelFace    = nil
-	screen.ComponentData.SourceIcon             = nil
-	screen.ComponentData.ActionBarBackground    = nil
-	screen.ComponentData.RerollIcon             = nil
-	screen.ComponentData.ActionBarLeft          = nil
-	screen.ComponentData.ActionBar              = nil
-	-- Pare the render Order down to the components we're keeping.
-	screen.ComponentData.Order = {
-		"ShopBackgroundDim",
-		"ShopBackgroundGradient",
-		"TitleText",
-		"FlavorText",
-	}
+	-- Generic god backdrop. "DialogueBackground_Olympus_BoonScreen" is the
+	-- fallback the base LootData entry ships with (LootData.lua:38), so every
+	-- god's boon menu inherits it if nothing more specific is set.
+	screen.ComponentData.OlympusBackground.AnimationName = "DialogueBackground_Olympus_BoonScreen"
+	-- Drop the interaction widgets we don't use — no reroll pane, no vanilla
+	-- action-bar buttons (we build our own Cancel / Revert below).
+	screen.ComponentData.RerollIcon    = nil
+	screen.ComponentData.ActionBarLeft = nil
+	screen.ComponentData.ActionBar     = nil
 
 	-- Resolve the vow injection each button will commit to, so the preview
 	-- text shown matches what actually lands.
@@ -1160,6 +1157,20 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	OnScreenOpened( screen )
 	CreateScreenFromData( screen, screen.ComponentData )
+
+	-- Post-spawn color tints exactly the way vanilla OpenUpgradeChoiceMenu
+	-- applies source.LightingColor after CreateScreenFromData. Violet here
+	-- matches the Fates/Oath theme the mod is built around.
+	local lightingColor = ProvokeMod.UI.Violet
+	if screen.Components.ShopLighting then
+		SetColor({ Id = screen.Components.ShopLighting.Id, Color = lightingColor })
+	end
+	if screen.Components.ShopLightingMelFace then
+		SetColor({ Id = screen.Components.ShopLightingMelFace.Id, Color = lightingColor })
+	end
+	if screen.Components.ShopBackgroundGradient then
+		SetColor({ Id = screen.Components.ShopBackgroundGradient.Id, Color = lightingColor })
+	end
 
 	-- Replace vanilla placeholder text with our ritual copy.
 	ModifyTextBox({ Id = screen.Components.TitleText.Id, Text = "Provoke the Fates" })
