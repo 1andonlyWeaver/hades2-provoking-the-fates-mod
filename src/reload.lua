@@ -1012,36 +1012,33 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice row matching the vanilla boon-pickup layout
--- (UpgradeChoiceLogic.lua / UpgradeChoiceData.lua). Each row is a
--- BoonSlotBase button with a rarity-tier backing animation, paired with a
--- separate Highlight BlankObstacle that the hover handler drives via
--- SetAnimation("BoonSlotHighlight"). Same wide-row layout vanilla uses:
--- icon slot on the far left (left empty for now — room reserved so future
--- icon additions slot in without a rework), title + cost on the top row,
--- description wrapping across the lower half.
-local function buildChoiceCard( screen, key, params )
-	-- Highlight overlay sits at the same coordinates as the slot. Alpha 0
-	-- by default; the MouseOver handler animates "BoonSlotHighlight" on it
-	-- (UpgradeChoiceLogic.lua:1355 uses this exact pattern).
+-- Build one choice row using the vanilla boon-pickup per-slot text formats
+-- (screen.TitleText / screen.CostText / screen.DescriptionText from the
+-- deep-copied ScreenData.UpgradeChoice). Positions match vanilla exactly:
+-- itemLocationX = ScreenCenterX - 355, itemLocationY steps by screen.ButtonSpacingY.
+local function buildChoiceRow( screen, key, params )
+	local itemLocationX = ScreenCenterX - 355 + screen.ButtonOffsetX
+	local itemLocationY = (ScreenCenterY - 190) + screen.ButtonSpacingY * ( params.Index - 1 )
+
+	-- Highlight overlay — the same BlankObstacle vanilla lays down behind
+	-- every boon slot, animated by the mouseover handler.
 	local highlight = CreateScreenComponent({
 		Name  = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X     = params.X,
-		Y     = params.Y,
+		Group = screen.ComponentData.DefaultGroup,
+		X     = itemLocationX,
+		Y     = itemLocationY,
 	})
 	SetAlpha({ Id = highlight.Id, Fraction = 0.0 })
 	screen.Components[key .. "Highlight"] = highlight
 
-	-- The interactive slot itself. BoonSlotBase is the vanilla boon row graphic;
-	-- SetAnimation swaps in the rarity frame (Rare / Epic / Legendary).
+	-- BoonSlotBase with the rarity-tier backing animation.
 	local slot = CreateScreenComponent({
 		Name  = "BoonSlotBase",
-		Group = "Combat_Menu_TraitTray",
-		X     = params.X,
-		Y     = params.Y,
+		Group = screen.ComponentData.DefaultGroup,
+		X     = itemLocationX,
+		Y     = itemLocationY,
 	})
-	SetAnimation({ Name = params.RarityAnim, DestinationId = slot.Id })
+	SetAnimation({ Name = screen.RarityBackingAnimations[params.Rarity], DestinationId = slot.Id })
 	slot.OnPressedFunctionName   = "ProvokeMod__OnSelectChoice"
 	slot.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
 	slot.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
@@ -1051,52 +1048,39 @@ local function buildChoiceCard( screen, key, params )
 	slot.Highlight  = highlight
 	screen.Components[key] = slot
 
-	-- Title in the upper-left quadrant of the slot (vanilla TitleText offset).
-	CreateTextBox({
-		Id            = slot.Id,
-		Text          = params.Title,
-		OffsetX       = -420,
-		OffsetY       = -60,
-		FontSize      = 28,
-		Color         = params.TitleColor,
-		Font          = "P22UndergroundSCMedium",
-		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
-		Justification = "Left",
+	-- Title + cost + description all use the exact vanilla formats, cloned
+	-- with ShallowCopyTable so we can override Text / Color without mutating
+	-- the screen template. Strip LuaKey / LuaValue / DataProperties because
+	-- those hook into the boon tooltip system we don't need.
+	local function createText( format, overrides )
+		local args = ShallowCopyTable( format )
+		args.LuaKey = nil
+		args.LuaValue = nil
+		args.DataProperties = nil
+		args.UseDescription = nil
+		args.Format = nil
+		args.VariableAutoFormat = nil
+		for k, v in pairs( overrides ) do args[k] = v end
+		args.Id = slot.Id
+		CreateTextBox( args )
+	end
+
+	createText( screen.TitleText, {
+		Text  = params.Title,
+		Color = params.TitleColor,
 	})
 
-	-- Cost mirrored on the right side (vanilla RarityText/CostText offset).
-	CreateTextBox({
-		Id            = slot.Id,
-		Text          = "+" .. tostring( params.Cost ) .. " Fear",
-		OffsetX       = 410,
-		OffsetY       = -60,
-		FontSize      = 28,
-		Color         = ProvokeMod.UI.Violet,
-		Font          = "P22UndergroundSCMedium",
-		ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
-		Justification = "Right",
+	createText( screen.CostText, {
+		Text  = "+" .. tostring( params.Cost ) .. " Fear",
+		Color = ProvokeMod.UI.Violet,
 	})
 
-	-- Description area. Width 830 matches vanilla DescriptionText (921.5)
-	-- scaled slightly narrower so our shorter "+N% foe damage" previews don't
-	-- look lost across the full slot. LatoMedium matches the vanilla body
-	-- font used for boon descriptions.
-	CreateTextBox({
-		Id                    = slot.Id,
-		Text                  = params.Preview,
-		OffsetX               = -420,
-		OffsetY               = -20,
-		Width                 = 830,
-		LineSpacingBottom     = 5,
-		FontSize              = 20,
-		Color                 = { 0.85, 0.80, 1.0, 0.95 },
-		Font                  = "LatoMedium",
-		ShadowBlur            = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
-		Justification         = "Left",
-		VerticalJustification = "Top",
+	createText( screen.DescriptionText, {
+		Text = params.Preview,
 	})
 
-	-- CURRENT badge — anchored bottom-right of the slot on re-provoke.
+	-- CURRENT badge — our addition, placed bottom-right of the slot to echo
+	-- where vanilla puts the stack-level pip badge.
 	if params.IsCurrent then
 		CreateTextBox({
 			Id            = slot.Id,
@@ -1142,59 +1126,29 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition )
 	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       nextPosition )
 
-	local screen = { Components = {}, Name = "ProvokeFatesScreen" }
-	OnScreenOpened( screen )
-
-	-- Strong full-screen dim is the only backdrop — we mirror the vanilla
-	-- boon-pickup screen, which also takes over fullscreen with a dim + the
-	-- three BoonSlotBase rows as the focal content, no modal frame.
-	screen.Components.BackgroundTint = CreateScreenComponent({
-		Name  = "rectangle01",
-		Group = "Combat_Menu_TraitTray_Backing",
-		X     = ScreenCenterX,
-		Y     = ScreenCenterY,
-	})
-	SetScale({ Id = screen.Components.BackgroundTint.Id, Fraction = 10 })
-	SetColor({ Id = screen.Components.BackgroundTint.Id, Color = { 0, 0, 0, 0.72 } })
-
-	-- Header: title + subtitle on one component, stacked via OffsetY. Sits
-	-- above the top boon row. Heavy outline + shadow matches Mythmaker-family
-	-- titles (ElementalPromptScreenData.lua:44).
-	screen.Components.Header = CreateScreenComponent({
-		Name  = "BlankObstacle",
-		Group = "Combat_Menu_TraitTray",
-		X     = ScreenCenterX,
-		Y     = ScreenCenterY - 355,
-	})
-	CreateTextBox({
-		Id               = screen.Components.Header.Id,
-		Text             = "Provoke the Fates",
-		FontSize         = 38,
-		Color            = ProvokeMod.UI.Violet,
-		Font             = "P22UndergroundSCMedium",
-		ShadowBlur       = 0,
-		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset     = { 0, 4 },
-		OutlineThickness = 4,
-		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Center",
-	})
-	CreateTextBox({
-		Id               = screen.Components.Header.Id,
-		Text             = isReprovoke
-			and "Change your choice, or revert the door."
-			or  "Upgrade this reward. The Fates will retaliate.",
-		OffsetY          = 48,
-		FontSize         = 18,
-		Color            = ProvokeMod.UI.MutedLavender,
-		Font             = "P22UndergroundSCMedium",
-		ShadowBlur       = 0,
-		ShadowColor      = ProvokeMod.UI.MythmakerTitleShadow,
-		ShadowOffset     = { 0, 3 },
-		OutlineThickness = 2,
-		OutlineColor     = ProvokeMod.UI.MythmakerTitleOutline,
-		Justification    = "Center",
-	})
+	-- Clone the vanilla boon-pickup screen definition so our screen is
+	-- structurally identical to it (same DefaultGroup, ButtonSpacingY,
+	-- per-slot text formats, backdrop components, etc.). Strip the pieces
+	-- that require a real loot source (god portrait, dynamic lighting, icon
+	-- slot) so CreateScreenFromData doesn't error on missing source data.
+	local screen = DeepCopyTable( ScreenData.UpgradeChoice )
+	screen.Name = "ProvokeFatesScreen"
+	screen.ComponentData.OlympusBackground      = nil
+	screen.ComponentData.ShopBackground         = nil
+	screen.ComponentData.ShopLighting           = nil
+	screen.ComponentData.ShopLightingMelFace    = nil
+	screen.ComponentData.SourceIcon             = nil
+	screen.ComponentData.ActionBarBackground    = nil
+	screen.ComponentData.RerollIcon             = nil
+	screen.ComponentData.ActionBarLeft          = nil
+	screen.ComponentData.ActionBar              = nil
+	-- Pare the render Order down to the components we're keeping.
+	screen.ComponentData.Order = {
+		"ShopBackgroundDim",
+		"ShopBackgroundGradient",
+		"TitleText",
+		"FlavorText",
+	}
 
 	-- Resolve the vow injection each button will commit to, so the preview
 	-- text shown matches what actually lands.
@@ -1203,6 +1157,18 @@ function ProvokeMod.OpenProvocationScreen( door )
 		EnhancedBoon = ProvokeMod.SelectThemedVows( enhancedCost ),
 		Hammer       = ProvokeMod.SelectThemedVows( hammerCost ),
 	}
+
+	OnScreenOpened( screen )
+	CreateScreenFromData( screen, screen.ComponentData )
+
+	-- Replace vanilla placeholder text with our ritual copy.
+	ModifyTextBox({ Id = screen.Components.TitleText.Id, Text = "Provoke the Fates" })
+	ModifyTextBox({
+		Id = screen.Components.FlavorText.Id,
+		Text = isReprovoke
+			and "Change your choice, or revert the door."
+			or  "Upgrade this reward. The Fates will retaliate.",
+	})
 
 	ProvokeMod.Log.info( "provoke", "open screen", {
 		objectId         = door.ObjectId,
@@ -1228,55 +1194,34 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three BoonSlotBase rows stacked vertically at vanilla boon-pickup
-	-- cadence (UpgradeChoiceLogic.lua uses ButtonSpacingY = 256; we use 230
-	-- to keep the whole screen a touch more compact since our descriptions
-	-- are shorter than full boon tooltips).
-	local rowSpacing = 230
-	local firstRowY  = ScreenCenterY - 230
+	-- Three BoonSlotBase rows at vanilla positions. Rarity rises with cost.
+	screen.KeepOpen = true
+	screen.UpgradeButtons = {}
 
-	local cardParams = {
-		{
-			key         = "RegularBoon",
-			choiceType  = "RegularBoon",
-			title       = "Boon",
-			cost        = regularCost,
-			preview     = buildPreviewLine( screen.PreviewedInjections.RegularBoon ),
-		},
-		{
-			key         = "EnhancedBoon",
-			choiceType  = "EnhancedBoon",
-			title       = "Enhanced Boon",
-			cost        = enhancedCost,
-			preview     = buildPreviewLine( screen.PreviewedInjections.EnhancedBoon ),
-		},
-		{
-			key         = "Hammer",
-			choiceType  = "Hammer",
-			title       = "Daedalus Hammer",
-			cost        = hammerCost,
-			preview     = buildPreviewLine( screen.PreviewedInjections.Hammer ),
-		},
+	local choiceConfigs = {
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",             cost = regularCost,  rarity = "Rare"      },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",    cost = enhancedCost, rarity = "Epic"      },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer",  cost = hammerCost,   rarity = "Legendary" },
 	}
 
-	for i, p in ipairs( cardParams ) do
-		buildChoiceCard( screen, p.key, {
-			X          = ScreenCenterX,
-			Y          = firstRowY + (i - 1) * rowSpacing,
-			RarityAnim = ProvokeMod.UI.RarityAnim[p.choiceType],
+	for i, choice in ipairs( choiceConfigs ) do
+		screen.UpgradeButtons[i] = buildChoiceRow( screen, choice.key, {
+			Index      = i,
 			Door       = door,
-			ChoiceType = p.choiceType,
-			Title      = p.title,
-			TitleColor = ProvokeMod.UI.ChoiceColor[p.choiceType],
-			Cost       = p.cost,
-			Preview    = p.preview,
-			IsCurrent  = (currentChoiceType == p.choiceType),
+			ChoiceType = choice.choiceType,
+			Title      = choice.title,
+			TitleColor = ProvokeMod.UI.ChoiceColor[choice.choiceType],
+			Cost       = choice.cost,
+			Preview    = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
+			IsCurrent  = (currentChoiceType == choice.choiceType),
+			Rarity     = choice.rarity,
 		})
 	end
 
-	-- Secondary buttons below the last row. Revert (re-provoke only) then
-	-- Cancel, stacked vertically below the third slot.
-	local secondaryY = firstRowY + rowSpacing * 3 + 30
+	-- Secondary buttons below the last boon row. Revert (re-provoke only)
+	-- then Cancel — our addition; vanilla boon pickup uses the global action
+	-- bar instead of per-dialog cancel buttons.
+	local secondaryY = (ScreenCenterY - 190) + screen.ButtonSpacingY * 3 + 40
 
 	if isReprovoke then
 		screen.Components.Revert = CreateScreenComponent({
