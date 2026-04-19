@@ -1816,13 +1816,18 @@ game.ProvokeMod__OnSelectChoice = function( screen, button )
 		isPickup   = button.IsFieldsPickup or false,
 	} )
 
-	-- Fix 4b stage 2: Fields pickup commit destroys the consumable in place
-	-- and replaces it with a FieldsRewardCage wrapping a Boon / Hammer reward
-	-- (player must fight the spawned enemies to unlock). Fear injection lands
-	-- in stage 3 once the spawn path is known to work.
+	-- Fields pickup commit: destroy the consumable in place, spawn a
+	-- FieldsRewardCage wrapping the upgraded reward, then immediately fire
+	-- StartFieldsEncounter on the new cage so combat starts now — matching
+	-- the door-provoke flow where picking a choice auto-proceeds into the
+	-- fight instead of leaving the player to walk back to the interactable.
+	-- Threaded so the menu fade-out doesn't overlap with enemy spawning.
 	if button.IsFieldsPickup then
 		ProvokeMod.CloseProvocationScreen( screen )
-		ProvokeMod.TransformFieldsPickup( target, button.ChoiceType )
+		local cage = ProvokeMod.TransformFieldsPickup( target, button.ChoiceType )
+		if cage ~= nil then
+			thread( StartFieldsEncounter, cage )
+		end
 		return
 	end
 
