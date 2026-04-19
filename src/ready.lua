@@ -166,3 +166,44 @@ modutil.mod.Path.Wrap( "HideUseButton", function( base, objectId, useTarget, fad
 	ProvokeMod.OnHideUseButton( objectId )
 	return result
 end, mod )
+
+-- ============================================================================
+-- Hook 9: Long-press gate on Fields pickups
+-- ============================================================================
+-- UseConsumableItem fires when the player interacts with a free-floating
+-- consumable (MetaCurrencyDrop = Ash/Bones/Psyche in Mourning Fields). For
+-- provokable pickups we arm the same hold-vs-tap gate we use on doors: a short
+-- tap passes through to normal consumption; a hold past ProvokeHoldSeconds
+-- opens the provocation menu and suppresses the base call.
+modutil.mod.Path.Wrap( "UseConsumableItem", function( base, consumableItem, args, user )
+	if consumableItem ~= nil and ProvokeMod.IsProvokableFieldsPickup( consumableItem ) then
+		if IsControlDown({ Name = "Use" }) or IsControlDown({ Name = "Interact" }) then
+			local notifyName = "ProvokeMod__HoldReleasePickup"
+			local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
+			ProvokeMod.Log.debug( "gate", "armed (pickup)", {
+				threshold = threshold,
+				objectId  = consumableItem.ObjectId,
+				name      = consumableItem.Name,
+			} )
+			NotifyOnControlReleased({
+				Names   = { "Use", "Interact" },
+				Notify  = notifyName,
+				Timeout = threshold,
+			})
+			waitUntil( notifyName )
+			local timedOut = _eventTimeoutRecord and _eventTimeoutRecord[ notifyName ]
+			if _eventTimeoutRecord then _eventTimeoutRecord[ notifyName ] = nil end
+			if timedOut then
+				ProvokeMod.Log.debug( "gate", "hold (open pickup menu)", {
+					objectId = consumableItem.ObjectId,
+				} )
+				ProvokeMod.OpenProvocationScreen( consumableItem )
+				return
+			end
+			ProvokeMod.Log.debug( "gate", "tap (consume pickup)", {
+				objectId = consumableItem.ObjectId,
+			} )
+		end
+	end
+	return base( consumableItem, args, user )
+end, mod )

@@ -185,6 +185,31 @@ function ProvokeMod.IsProvokableDoor( door )
 	return pd ~= nil and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress"
 end
 
+-- Fix 4b: Mourning Fields (biome H) doesn't gate minor rewards behind exit
+-- doors. Ash / Bones / Psyche ship as free-floating MetaCurrencyDrop
+-- consumables that fire through UseConsumableItem instead of LeaveRoom. The
+-- mod treats these as provokable targets too, but downstream code that reads
+-- door.Room or auto-proceeds via LeaveRoom must gate on target type.
+ProvokeMod.ProvokableFieldsPickupNames = {
+	MetaCurrencyDrop = true,  -- Ash / Bones / Psyche (t_ResourceAmount in log)
+}
+
+function ProvokeMod.IsProvokableFieldsPickup( useTarget )
+	if useTarget == nil or useTarget.Name == nil then return false end
+	local room = CurrentRun and CurrentRun.CurrentRoom
+	if room == nil or room.RoomSetName ~= "H" then return false end
+	return ProvokeMod.ProvokableFieldsPickupNames[useTarget.Name] == true
+end
+
+-- True for any target the provocation flow should accept — door or Fields
+-- pickup. Callers that need to branch on shape should switch on the specific
+-- predicate (IsProvokableDoor vs IsProvokableFieldsPickup).
+function ProvokeMod.IsProvokableTarget( target )
+	if target == nil then return false end
+	if ProvokeMod.IsProvokableFieldsPickup( target ) then return true end
+	return ProvokeMod.IsProvokableDoor( target )
+end
+
 -- Find the first MetaProgress exit in the current room (provoked or not).
 -- Also matches doors that were originally MetaProgress but have been transformed
 -- (TransformDoor changes door.RewardStoreName away from "MetaProgress").
@@ -289,27 +314,44 @@ end
 -- and tracks which door the player is currently nearest to.
 function ProvokeMod.OnShowUseButton( objectId, useTarget )
 	ProvokeMod.LogFieldsInteractableShape( objectId, useTarget )
-	if MapState == nil or MapState.OfferedExitDoors == nil then return end
-	local door = MapState.OfferedExitDoors[objectId]
-	if door == nil then
-		ProvokeMod.Log.trace( "door", "show: object not in OfferedExitDoors", { objectId = objectId } )
+
+	-- Exit-door path (every biome, including Fields' own FieldsExitDoor).
+	if MapState ~= nil and MapState.OfferedExitDoors ~= nil then
+		local door = MapState.OfferedExitDoors[objectId]
+		if door ~= nil and ProvokeMod.IsProvokableDoor( door ) then
+			ProvokeMod.RunState.NearestProvokableDoor = door
+			ProvokeMod.Log.debug( "door", "show (provokable)", { objectId = objectId } )
+			ProvokeMod.SpawnProvokeHint()
+			return
+		end
+	end
+
+	-- Fields pickup path: MetaCurrencyDrop in biome H routes through
+	-- UseConsumableItem, not LeaveRoom, so we need a separate provoke entry
+	-- point. We still park the target in NearestProvokableDoor for the long-
+	-- press gate to pick up (the field name is legacy — covers both shapes).
+	if ProvokeMod.IsProvokableFieldsPickup( useTarget ) then
+		ProvokeMod.RunState.NearestProvokableDoor = useTarget
+		ProvokeMod.Log.debug( "fields", "show (provokable pickup)", {
+			objectId = objectId,
+			name     = useTarget.Name,
+		} )
+		ProvokeMod.SpawnProvokeHint()
 		return
 	end
-	if ProvokeMod.IsProvokableDoor( door ) then
-		ProvokeMod.RunState.NearestProvokableDoor = door
-		ProvokeMod.Log.debug( "door", "show (provokable)", { objectId = objectId } )
-		ProvokeMod.SpawnProvokeHint()
-	else
-		ProvokeMod.Log.trace( "door", "show (non-provokable door)", { objectId = objectId } )
-	end
+
+	ProvokeMod.Log.trace( "door", "show (non-provokable)", { objectId = objectId } )
 end
 
 -- Called when the game hides a use prompt (player left interact range).
--- Clears the nearest-door reference so a stale door is not used when the hotkey fires.
+-- Clears the nearest-target reference so a stale target is not used when the
+-- hotkey fires, and despawns the provoke hint so it doesn't linger after the
+-- player walks away from a pickup or door.
 function ProvokeMod.OnHideUseButton( objectId )
 	local nearest = ProvokeMod.RunState.NearestProvokableDoor
 	if nearest and nearest.ObjectId == objectId then
 		ProvokeMod.RunState.NearestProvokableDoor = nil
+		ProvokeMod.DespawnProvokeHint()
 		ProvokeMod.Log.debug( "door", "hide (cleared nearest)", { objectId = objectId } )
 	else
 		ProvokeMod.Log.trace( "door", "hide (not nearest)", { objectId = objectId } )
@@ -1164,9 +1206,10 @@ local function buildChoiceRow( screen, key, params )
 	slot.OnPressedFunctionName   = "ProvokeMod__OnSelectChoice"
 	slot.OnMouseOverFunctionName = "ProvokeMod__OnCardMouseOver"
 	slot.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
-	slot.Door       = params.Door
-	slot.Screen     = screen
-	slot.ChoiceType = params.ChoiceType
+	slot.Door           = params.Door
+	slot.IsFieldsPickup = params.IsFieldsPickup or false
+	slot.Screen         = screen
+	slot.ChoiceType     = params.ChoiceType
 	screen.Components[key] = slot
 
 	-- Highlight overlay — match ShrineLogic.lua:81-88: pre-load the highlight
@@ -1301,8 +1344,13 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return
 	end
 
+	-- Fix 4b: distinguish door-style targets (which support re-provoke via the
+	-- ProvokedDoors table) from Fields pickups (one-shot: pickup destroyed and
+	-- replaced with a cage on commit, no re-approach possible).
+	local isFieldsPickup = ProvokeMod.IsProvokableFieldsPickup( door )
+
 	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
-	local isReprovoke = existingData ~= nil and existingData.Provoked == true
+	local isReprovoke = (not isFieldsPickup) and existingData ~= nil and existingData.Provoked == true
 	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
 
 	-- Total ranks the eligible-vow pool can still absorb. Any option whose
@@ -1511,6 +1559,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		screen.UpgradeButtons[i] = buildChoiceRow( screen, choice.key, {
 			Index           = i,
 			Door            = door,
+			IsFieldsPickup  = isFieldsPickup,
 			ChoiceType      = choice.choiceType,
 			Title           = choice.title,
 			TitleColor      = ProvokeMod.UI.ChoiceColor[choice.choiceType],
@@ -1617,23 +1666,39 @@ end
 
 game.ProvokeMod__OnSelectChoice = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
-	local door = button.Door
+	local target = button.Door
 	ProvokeMod.Log.info( "provoke", "select choice", {
 		choiceType = button.ChoiceType,
-		objectId   = door and door.ObjectId,
+		objectId   = target and target.ObjectId,
+		isPickup   = button.IsFieldsPickup or false,
 	} )
-	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
+
+	-- Fix 4b stage 1: Fields pickup provocations log the intended transform
+	-- and close the menu. No cage is spawned yet (that's stage 2) — this pass
+	-- is just validating detection + menu wiring on the new target type.
+	if button.IsFieldsPickup then
+		ProvokeMod.Log.info( "fields", "stage1_stub: would transform pickup to cage", {
+			pickupId    = target and target.ObjectId,
+			pickupName  = target and target.Name,
+			choiceType  = button.ChoiceType,
+			plannedCost = ProvokeMod.GetFearCost( button.ChoiceType ),
+		} )
+		ProvokeMod.CloseProvocationScreen( screen )
+		return
+	end
+
+	local existingData = ProvokeMod.RunState.ProvokedDoors[target.ObjectId]
 	if existingData and existingData.Provoked then
-		ProvokeMod.UnTransformDoor( door )
+		ProvokeMod.UnTransformDoor( target )
 	end
 	local injection = screen.PreviewedInjections and screen.PreviewedInjections[button.ChoiceType]
-	ProvokeMod.TransformDoor( door, button.ChoiceType, injection )
+	ProvokeMod.TransformDoor( target, button.ChoiceType, injection )
 	ProvokeMod.CloseProvocationScreen( screen )
 	-- Auto-proceed: skip AttemptUseDoor (its pre-LeaveRoom setup already ran on
 	-- the initial press), call LeaveRoom directly. Our LeaveRoom wrap re-enters
 	-- but IsControlDown is false (Confirm was pressed, not Use/Interact), so the
 	-- hold-gate branch is skipped and we fall through to the provoked-door path.
-	thread( LeaveRoom, CurrentRun, door )
+	thread( LeaveRoom, CurrentRun, target )
 end
 
 game.ProvokeMod__OnCancel = function( screen, button )
