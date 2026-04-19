@@ -18,7 +18,7 @@ Pressing it opens a 3-card selection menu:
 
 ## Transient Fear
 
-The cost you pay is **Transient Fear** — random Oath of the Unseen vows injected into the upcoming combat room. They vanish once the fear's duration (in combat rooms) runs out.
+The cost you pay is **Transient Fear** — random Oath of the Unseen vows injected into the upcoming combat encounter. They vanish once the fear's duration (in combat encounters) runs out.
 
 - **Linear greed**: Fear cost = `multiplier × n`, where n is the 1-indexed slot of this provocation in the run. Hammer series: 3, 6, 9, 12…; Enhanced series: 2, 4, 6, 8…; Regular series: 1, 2, 3, 4…
 - **Capped pool**: If a provocation's cost would exceed the remaining vow-pool capacity, that option is hidden from the menu. When every option is over-capacity, a rejection dialog appears instead of charging Fear that cannot land.
@@ -34,8 +34,8 @@ All values are configurable via r2modman's config editor:
 - `GreedMultiplier_RegularBoon` — Greed step added each slot when picking Regular Boon (default: 1)
 - `GreedMultiplier_EnhancedBoon` — Greed step added each slot when picking Enhanced Boon (default: 2)
 - `GreedMultiplier_Hammer` — Greed step added each slot when picking Daedalus Hammer (default: 3)
-- `GreedExtendsDuration` — Each provocation after the first lasts 1 extra room per prior provocation (default: true)
-- `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer` — Base Fear-stack duration per choice type (defaults: 1 / 2 / 3 rooms)
+- `GreedExtendsDuration` — Each provocation after the first lasts 1 extra encounter per prior provocation (default: true)
+- `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer` — Base Fear-stack duration per choice type, in combat encounters (defaults: 1 / 2 / 3)
 - `ThemedSplitThreshold` — At or below this Fear cost a provocation concentrates on a single vow; above it the ranks split across two (default: 6)
 - `ProvokeHoldSeconds` — Hold-duration on Interact to open the provocation menu (default: 0.5)
 - `LogLevel` — Playtest log verbosity: TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)

@@ -75,8 +75,9 @@ function ProvokeMod.ResetRunState()
 		ProvokeHintId = nil,
 		HintThreadActive = false,
 		NearestProvokableDoor = nil,
-		RoomEncounterCount = 0,
-		RoomEncountersCompleted = 0,
+		-- Reset to false at each OnEncounterEnd; guards the StartEncounter wrap
+		-- from re-applying door-fear when cage-fear already put it in ATV.
+		DoorFearAppliedThisEncounter = false,
 	}
 end
 
@@ -588,119 +589,6 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 	} )
 end
 
--- Merge all active Fear stacks into a single { [vow] = ranks } injection, then
--- apply it on top of baseline GameState.ShrineUpgrades. Every vow clamps at
--- its native max rank. If two stacks both picked the same vow and the merged
--- sum would exceed its cap, the excess spills to additional eligible vows
--- with remaining room so paid Fear still lands as visible ranks. Saves the
--- pre-application ranks in ActiveTransientVows so they can be restored later.
-function ProvokeMod.ApplyFearStacksToRoom()
-	-- Safety: remove any lingering transient injection from a prior room that
-	-- did not clean up correctly.
-	if ProvokeMod.RunState.TransientFearActive then
-		ProvokeMod.Log.warn( "fear", "idempotent safety: TransientFearActive still set at room entry" )
-		ProvokeMod.RestoreVowsOnly()
-	end
-
-	local stacks = ProvokeMod.RunState.ActiveFearStacks
-	if stacks == nil or #stacks == 0 then return end
-
-	-- Sum ranks per vow across all active stacks.
-	local merged = {}
-	for _, stack in ipairs( stacks ) do
-		for vowName, ranks in pairs( stack.Injection ) do
-			merged[vowName] = (merged[vowName] or 0) + ranks
-		end
-	end
-
-	-- Apply each merged total, clamping at the vow's remaining room. Any
-	-- excess accumulates in `overflow` and gets redistributed below.
-	ProvokeMod.RunState.ActiveTransientVows = {}
-	local overflow = 0
-	for vowName, ranksToAdd in pairs( merged ) do
-		local baseline = GameState.ShrineUpgrades[vowName] or 0
-		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-		local room = math.max( 0, maxRank - baseline )
-		local take = math.min( ranksToAdd, room )
-		if take > 0 then
-			ProvokeMod.RunState.ActiveTransientVows[vowName] = {
-				OriginalRank = baseline,
-				AddedRanks   = take,
-			}
-			GameState.ShrineUpgrades[vowName] = baseline + take
-			ShrineUpgradeExtractValues( vowName )
-		end
-		overflow = overflow + (ranksToAdd - take)
-	end
-
-	-- Spill merge overflow to other eligible vows with remaining room — same
-	-- "add more vows" principle as SelectThemedVows. Random order keeps runs
-	-- from always spilling onto the same leftovers.
-	if overflow > 0 then
-		local candidates = {}
-		for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
-			local baseline = GameState.ShrineUpgrades[vowName] or 0
-			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-			local existing = ProvokeMod.RunState.ActiveTransientVows[vowName]
-			local already = existing and existing.AddedRanks or 0
-			if baseline + already < maxRank then
-				table.insert( candidates, vowName )
-			end
-		end
-		while overflow > 0 and #candidates > 0 do
-			local idx = RandomInt( 1, #candidates )
-			local vowName = candidates[idx]
-			table.remove( candidates, idx )
-			local baseline = GameState.ShrineUpgrades[vowName] or 0
-			local maxRank = ProvokeMod.GetVowMaxRank( vowName )
-			local existing = ProvokeMod.RunState.ActiveTransientVows[vowName]
-			local already = existing and existing.AddedRanks or 0
-			local room = math.max( 0, maxRank - baseline - already )
-			local take = math.min( overflow, room )
-			if take > 0 then
-				if existing then
-					existing.AddedRanks = already + take
-				else
-					ProvokeMod.RunState.ActiveTransientVows[vowName] = {
-						OriginalRank = baseline,
-						AddedRanks   = take,
-					}
-				end
-				GameState.ShrineUpgrades[vowName] = baseline + already + take
-				ShrineUpgradeExtractValues( vowName )
-				overflow = overflow - take
-			end
-		end
-		if overflow > 0 then
-			ProvokeMod.Log.warn( "fear", "merge overflow dropped: pool exhausted", { overflow = overflow } )
-		end
-	end
-
-	ProvokeMod.RunState.TransientFearActive = true
-
-	local vowDetails = {}
-	local totalAdded = 0
-	for vowName, v in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
-		table.insert( vowDetails, vowName .. " +" .. v.AddedRanks .. " (was " .. v.OriginalRank .. ")" )
-		totalAdded = totalAdded + (v.AddedRanks or 0)
-	end
-	ProvokeMod.Log.info( "fear", "inject stacks into room", {
-		stacks     = #stacks,
-		totalRanks = totalAdded,
-		vowCount   = #vowDetails,
-	} )
-	for vowName, v in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
-		ProvokeMod.Log.debug( "fear", "inject per-vow", {
-			vow      = vowName,
-			baseline = v.OriginalRank,
-			added    = v.AddedRanks,
-			newRank  = v.OriginalRank + v.AddedRanks,
-		} )
-	end
-
-	ProvokeMod.UpdateFearHUD()
-end
-
 -- Persistent HUD icon cluster showing each active vow while Fear is applied.
 -- Uses the vanilla MetaUpgradeData[vow].Icon animations on small BlankObstacles
 -- arranged horizontally near the top-right of the screen, with a rooms-
@@ -788,7 +676,8 @@ function ProvokeMod.ClearFearHUD()
 	ProvokeMod.RunState.FearHUDIconIds = nil
 end
 
--- Restore ShrineUpgrades to their pre-ApplyFearStacksToRoom ranks. Idempotent.
+-- Restore ShrineUpgrades to their pre-injection ranks from ActiveTransientVows.
+-- Idempotent — no-op when TransientFearActive is already false.
 -- Does NOT touch stack bookkeeping — use RestoreVowsAndDecayStacks for that.
 function ProvokeMod.RestoreVowsOnly()
 	if not ProvokeMod.RunState.TransientFearActive then
@@ -1002,18 +891,12 @@ function ProvokeMod.UnTransformDoor( door )
 	} )
 end
 
--- Fix 4b stage 3: apply a provoked Fields cage's pre-rolled injection to
--- GameState.ShrineUpgrades additively, merging into ActiveTransientVows so
--- the existing RestoreVowsOnly path strips everything cleanly when the
--- combat ends. Applied exactly once per cage — idempotent via FearApplied.
-function ProvokeMod.ApplyCageFear( cageData )
-	if cageData == nil or cageData.FearApplied then return end
-	local injection = cageData.Injection
-	if injection == nil then
-		cageData.FearApplied = true
-		return
-	end
-
+-- Apply a single { [vowName] = ranks } injection on top of whatever is
+-- already in ActiveTransientVows. Per-vow ranks clamp at the vow's max
+-- rank minus any ranks already added this encounter. Returns the total
+-- new ranks actually applied so callers can log / banner off it.
+function ProvokeMod.ApplyInjectionAdditively( injection )
+	if injection == nil then return 0 end
 	ProvokeMod.RunState.ActiveTransientVows = ProvokeMod.RunState.ActiveTransientVows or {}
 
 	local appliedRanks = 0
@@ -1039,19 +922,60 @@ function ProvokeMod.ApplyCageFear( cageData )
 		end
 	end
 
-	ProvokeMod.RunState.TransientFearActive = true
+	if appliedRanks > 0 then
+		ProvokeMod.RunState.TransientFearActive = true
+	end
+	return appliedRanks
+end
+
+-- Apply all active door-fear stacks additively to the current encounter's
+-- ShrineUpgrades state, then refresh the HUD + banner off the combined ATV
+-- (so cage-fear merged just before by StartFieldsEncounter shows up in the
+-- same banner as door-fear). Idempotent per encounter via
+-- DoorFearAppliedThisEncounter (reset at OnEncounterEnd) — called from the
+-- StartEncounter wrap so every combat encounter re-applies the accumulated
+-- stacks' ranks.
+function ProvokeMod.ApplyActiveStacksForEncounter()
+	if not ProvokeMod.RunState.DoorFearAppliedThisEncounter then
+		local stacks = ProvokeMod.RunState.ActiveFearStacks
+		if stacks ~= nil and #stacks > 0 then
+			local merged = {}
+			for _, stack in ipairs( stacks ) do
+				for vow, r in pairs( stack.Injection or {} ) do
+					merged[vow] = (merged[vow] or 0) + r
+				end
+			end
+			local applied = ProvokeMod.ApplyInjectionAdditively( merged )
+			ProvokeMod.Log.info( "fear", "active stacks applied for encounter", {
+				stacks       = #stacks,
+				appliedRanks = applied,
+			} )
+		end
+		ProvokeMod.RunState.DoorFearAppliedThisEncounter = true
+	end
+
+	-- Whether we applied anything new or cage-fear already landed, surface a
+	-- single combined banner + HUD refresh off ActiveTransientVows totals.
+	local totalRanks = 0
+	for _, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows or {} ) do
+		totalRanks = totalRanks + (vowData.AddedRanks or 0)
+	end
+	if totalRanks > 0 then
+		ProvokeMod.UpdateFearHUD()
+		local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
+		ProvokeMod.ShowFearBanner( totalRanks, vowLines, CurrentRun and CurrentRun.CurrentRoom )
+	end
+end
+
+-- Fix 4b stage 3: apply a provoked Fields cage's pre-rolled injection to
+-- GameState.ShrineUpgrades additively. StartEncounter's wrap fires right
+-- after this and shows the combined banner/HUD off ActiveTransientVows, so
+-- we don't paint either here — just apply + mark. Applied exactly once per
+-- cage — idempotent via FearApplied.
+function ProvokeMod.ApplyCageFear( cageData )
+	if cageData == nil or cageData.FearApplied then return end
+	local appliedRanks = ProvokeMod.ApplyInjectionAdditively( cageData.Injection )
 	cageData.FearApplied = true
-
-	-- Refresh the HUD cluster so the player actually sees the vow icons the
-	-- cage combat is suffering under. RestoreVowsOnly → ClearFearHUD handles
-	-- the wipe when combat ends.
-	ProvokeMod.UpdateFearHUD()
-
-	-- Same "The Fates are Provoked (+N Fear)" banner + cascading vow-effect
-	-- lines that door-provocations get at room start. The current room is
-	-- also the cage's room, so cleanup scopes correctly on room transition.
-	local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
-	ProvokeMod.ShowFearBanner( appliedRanks, vowLines, CurrentRun and CurrentRun.CurrentRoom )
 
 	ProvokeMod.Log.info( "fields", "cage_fear_applied", {
 		choiceType   = cageData.ChoiceType,
@@ -1508,10 +1432,10 @@ local function buildChoiceRow( screen, key, params )
 	-- Duration directly under the cost badge so the price tag reads as
 	-- "+N Fear / M rooms" — the two numbers that define the trade.
 	if params.Duration then
-		local roomsText = params.Duration == 1 and "1 room" or (tostring( params.Duration ) .. " rooms")
+		local encountersText = params.Duration == 1 and "1 encounter" or (tostring( params.Duration ) .. " encounters")
 		CreateTextBox({
 			Id            = slot.Id,
-			Text          = "Lasts " .. roomsText,
+			Text          = "Lasts " .. encountersText,
 			OffsetX       = 410,
 			OffsetY       = -28,
 			FontSize      = 17,
@@ -2031,66 +1955,47 @@ function ProvokeMod.ShowFearBanner( totalRanks, vowLines, roomRef )
 	end)
 end
 
--- Called from StartRoom wrap after the room initializes
+-- Called from StartRoom wrap after the room initializes.
+-- Fear application has moved to the StartEncounter wrap so that each combat
+-- encounter — single-wave, multi-wave, Fields cage — re-injects the
+-- accumulated stacks' ranks. OnRoomStart just logs room state and leaves the
+-- ShrineUpgrades baseline untouched while the player walks to the fight.
 function ProvokeMod.OnRoomStart( currentRun, currentRoom )
-	-- Track how many encounters this room has so OnEncounterEnd only removes fear
-	-- after the last one completes (guards against multi-encounter rooms).
-	ProvokeMod.RunState.RoomEncounterCount = (currentRoom.Encounters and #currentRoom.Encounters) or 1
-	ProvokeMod.RunState.RoomEncountersCompleted = 0
-
 	ProvokeMod.LogFearStackState( "room_start" )
-
-	local stacks = ProvokeMod.RunState.ActiveFearStacks
-	if stacks ~= nil and #stacks > 0 then
-		ProvokeMod.ApplyFearStacksToRoom()
-
-		-- Banner number: sum of ranks actually applied this room (post-clamp).
-		local totalRanks = 0
-		for _, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows ) do
-			totalRanks = totalRanks + (vowData.AddedRanks or 0)
-		end
-		ProvokeMod.RunState.LastFearCost = totalRanks
-
-		local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
-		ProvokeMod.ShowFearBanner( totalRanks, vowLines, currentRoom )
-	end
-
-	-- Hint spawning is handled in OnExitsUnlocked (triggered by DoUnlockRoomExits hook),
-	-- which fires after the encounter ends and doors have ReadyToUse = true.
 	ProvokeMod.Log.info( "room", "start complete", {
-		encounters = ProvokeMod.RunState.RoomEncounterCount,
-		stacks     = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
-		totalRanks = ProvokeMod.RunState.LastFearCost or 0,
+		stacks = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
 	} )
 end
 
--- Called from EndEncounterEffects wrap before the base function
+-- Called from EndEncounterEffects wrap before the base function.
+-- Vanilla sets encounter.Completed = true exactly once per real combat
+-- encounter (RoomLogic.lua:1921), and EndEncounterEffects fires at that
+-- moment — so every combat encounter's end ticks decay once. No room-level
+-- "last encounter" gate: Fields rooms with multiple cage combats decrement
+-- once per cage, multi-wave rooms decrement once per wave, single-combat
+-- rooms decrement once.
 function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
-	ProvokeMod.RunState.RoomEncountersCompleted = (ProvokeMod.RunState.RoomEncountersCompleted or 0) + 1
-	local expected = ProvokeMod.RunState.RoomEncounterCount or 1
-	local isLast   = ProvokeMod.RunState.RoomEncountersCompleted >= expected
 	local isCombat = ProvokeMod.IsCombatEncounter( currentEncounter )
 	ProvokeMod.Log.info( "room", "encounter_end", {
-		completed     = ProvokeMod.RunState.RoomEncountersCompleted,
-		expected      = expected,
-		isLast        = isLast,
 		isCombat      = isCombat,
 		encounterType = currentEncounter and currentEncounter.EncounterType,
 	} )
-	if isLast then
-		if isCombat then
-			-- Last combat encounter of this room: restore baseline ranks and decay stacks.
-			ProvokeMod.RestoreVowsAndDecayStacks()
-			ProvokeMod.LogFearStackState( "encounter_end" )
-		else
-			-- Non-combat room (Devotion trial, NPC beat, etc.): scrub any injected
-			-- ranks but leave RoomsRemaining untouched so Fear rides over the filler.
-			ProvokeMod.RestoreVowsOnly()
-			ProvokeMod.Log.info( "room", "encounter_end_skip_decay", {
-				encounterType = currentEncounter and currentEncounter.EncounterType,
-				stacks        = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
-			} )
-		end
+	-- Reset the per-encounter flag so the next StartEncounter re-applies
+	-- door-fear fresh (per the new "N encounters" duration semantic).
+	ProvokeMod.RunState.DoorFearAppliedThisEncounter = false
+	if isCombat then
+		-- Combat encounter ended: restore baseline ranks and decay stacks.
+		ProvokeMod.RestoreVowsAndDecayStacks()
+		ProvokeMod.LogFearStackState( "encounter_end" )
+	else
+		-- Non-combat encounter (Devotion trial, NPC beat, etc.): scrub any
+		-- injected ranks but leave RoomsRemaining untouched so Fear rides
+		-- over the filler.
+		ProvokeMod.RestoreVowsOnly()
+		ProvokeMod.Log.info( "room", "encounter_end_skip_decay", {
+			encounterType = currentEncounter and currentEncounter.EncounterType,
+			stacks        = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
+		} )
 	end
 	-- LeaveRoom calls RestoreVowsOnly unconditionally as a final safety net.
 end

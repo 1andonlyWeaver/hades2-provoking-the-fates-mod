@@ -32,16 +32,17 @@ return {
   -- provocation feel like a single big curse; lower to spread Fear sooner.
   ThemedSplitThreshold = 6;
 
-  -- Duration (in combat rooms) that each provocation's Fear remains active
-  -- before it decays off entirely. Non-combat rooms (shops, NPCs) don't consume
-  -- a duration tick — the Fear pauses until the next fight.
+  -- Duration (in combat encounters) that each provocation's Fear remains
+  -- active before it decays off entirely. Non-combat encounters (shops,
+  -- Devotion trials, NPC beats) don't consume a duration tick — the Fear
+  -- pauses until the next fight.
   Duration_RegularBoon  = 1;
   Duration_EnhancedBoon = 2;
   Duration_Hammer       = 3;
 
   -- When true, each provocation past the first extends its own stack's
-  -- duration by 1 room per prior provocation (of any type). The 1st ever
-  -- provocation lasts its base duration; the 2nd lasts base+1; the 3rd
+  -- duration by 1 encounter per prior provocation (of any type). The 1st
+  -- ever provocation lasts its base duration; the 2nd lasts base+1; the 3rd
   -- lasts base+2; and so on. Greedier runs carry heavier and longer
   -- retaliation, regardless of which options the player picks.
   GreedExtendsDuration = true;

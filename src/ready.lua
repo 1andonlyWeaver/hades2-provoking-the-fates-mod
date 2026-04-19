@@ -173,7 +173,23 @@ modutil.mod.Path.Wrap( "HideUseButton", function( base, objectId, useTarget, fad
 end, mod )
 
 -- ============================================================================
--- Hook 9: Apply provoked-cage Fear when the player triggers the combat
+-- Hook 9: Apply active door-fear stacks at every combat encounter start
+-- ============================================================================
+-- Vanilla calls StartEncounter(currentRun, currentRoom, encounter) at the top
+-- of every encounter — the first wave of a single-combat room, each wave in a
+-- multi-wave room, and the combat that StartFieldsEncounter kicks off inside
+-- a Fields cage. ApplyActiveStacksForEncounter is idempotent via
+-- DoorFearAppliedThisEncounter (reset at OnEncounterEnd), so firing it here
+-- means every fresh combat encounter gets the accumulated stacks' ranks
+-- re-applied. OnEncounterEnd then restores + decays per-encounter — matching
+-- the "N encounters left" label the player reads.
+modutil.mod.Path.Wrap( "StartEncounter", function( base, currentRun, currentRoom, encounter )
+	ProvokeMod.ApplyActiveStacksForEncounter()
+	return base( currentRun, currentRoom, encounter )
+end, mod )
+
+-- ============================================================================
+-- Hook 10: Apply provoked-cage Fear when the player triggers the combat
 -- ============================================================================
 -- StartFieldsEncounter (EncounterLogic.lua:2884) runs when the player uses a
 -- FieldsRewardCage. If the cage was produced by TransformFieldsPickup, its
@@ -199,7 +215,7 @@ modutil.mod.Path.Wrap( "StartFieldsEncounter", function( base, rewardCage, args 
 end, mod )
 
 -- ============================================================================
--- Hook 10: Long-press gate on Fields pickups
+-- Hook 11: Long-press gate on Fields pickups
 -- ============================================================================
 -- UseConsumableItem fires when the player interacts with a free-floating
 -- consumable (MetaCurrencyDrop = Ash/Bones/Psyche in Mourning Fields). For
