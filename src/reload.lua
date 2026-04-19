@@ -224,10 +224,67 @@ function ProvokeMod.OnExitsUnlocked()
 	end
 end
 
+-- Fix 4a instrumentation: while the player is in Mourning Fields (RoomSetName
+-- == "Q"), log the shape of every interactable whose use-prompt shows. Fields
+-- doesn't use standard exit doors; it uses FieldsRewardCage obstacles whose
+-- underlying reward lives at ActiveObstacles[cage.RewardId]. We don't know the
+-- exact Lua-side field names the cage exposes, so this pass dumps a handful of
+-- likely fields on both the outer obstacle and its linked reward, plus any of
+-- the reward-type fields, so the next pass can write a real cage-detection
+-- predicate against actual runtime data.
+function ProvokeMod.LogFieldsInteractableShape( objectId )
+	local room = CurrentRun and CurrentRun.CurrentRoom
+	if room == nil or room.RoomSetName ~= "Q" then return end
+
+	local obj = ActiveObstacles and ActiveObstacles[objectId] or nil
+
+	local kvs = {
+		objectId    = objectId,
+		roomSetName = room.RoomSetName,
+		obsPresent  = obj ~= nil,
+	}
+	if obj ~= nil then
+		kvs.obs_Name             = obj.Name
+		kvs.obs_ObjectType       = obj.ObjectType
+		kvs.obs_RewardId         = obj.RewardId
+		kvs.obs_ConsumableType   = obj.ConsumableType
+		kvs.obs_UseFunctionName  = obj.UseFunctionName
+		kvs.obs_RewardStoreName  = obj.RewardStoreName
+		kvs.obs_RewardType       = obj.RewardType
+		kvs.obs_ChosenRewardType = obj.ChosenRewardType
+		kvs.obs_ForceLootName    = obj.ForceLootName
+		kvs.obs_Activated        = obj.Activated
+		kvs.obs_InRange          = obj.InRange
+		kvs.obs_ReadyToUse       = obj.ReadyToUse
+		kvs.obs_hasRoom          = obj.Room ~= nil
+		if obj.Room then
+			kvs.obs_Room_ChosenRewardType = obj.Room.ChosenRewardType
+			kvs.obs_Room_RewardStoreName  = obj.Room.RewardStoreName
+		end
+	end
+
+	if obj and obj.RewardId and ActiveObstacles then
+		local linked = ActiveObstacles[obj.RewardId]
+		kvs.lnk_Present = linked ~= nil
+		if linked ~= nil then
+			kvs.lnk_Name             = linked.Name
+			kvs.lnk_ObjectType       = linked.ObjectType
+			kvs.lnk_ConsumableType   = linked.ConsumableType
+			kvs.lnk_RewardType       = linked.RewardType
+			kvs.lnk_ForceLootName    = linked.ForceLootName
+			kvs.lnk_ChosenRewardType = linked.ChosenRewardType
+			kvs.lnk_RewardStoreName  = linked.RewardStoreName
+		end
+	end
+
+	ProvokeMod.Log.info( "fields", "show_use_button_shape", kvs )
+end
+
 -- Called when the game shows a use prompt for an obstacle (player entered interact range).
 -- Shows the Provoke hint only when the relevant MetaProgress door is in range,
 -- and tracks which door the player is currently nearest to.
 function ProvokeMod.OnShowUseButton( objectId )
+	ProvokeMod.LogFieldsInteractableShape( objectId )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
 	if door == nil then
