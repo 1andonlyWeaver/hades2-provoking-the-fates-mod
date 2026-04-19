@@ -162,8 +162,15 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	end
 	-- Exclude provoking INTO a boss room: the biome boss reward slot shouldn't
 	-- be swappable for a Hammer / Boon, and the UX of provoking a boss fight
-	-- on top of the existing boss-room vow stack is too much.
-	if door.Room.Encounter and door.Room.Encounter.EncounterType == "Boss" then
+	-- on top of the existing boss-room vow stack is too much. `door.Room.Encounter`
+	-- is always nil at door-time — vanilla's CreateRoom for a door passes
+	-- `SkipChooseEncounter = true` (RoomLogic.lua:3915) — so key off the target
+	-- room's name. Every biome's boss room is `<Biome>_Boss<NN>` (C_Boss01,
+	-- G_Boss01/02, H_Boss01/02, I_Boss01, F_Boss01/02, N_Boss01/02, O_Boss01/02,
+	-- P_Boss01, Q_Boss01/02); PreBoss / PostBoss / MiniBoss rooms intentionally
+	-- stay provokable.
+	local targetName = door.Room.Name
+	if targetName and string.match( targetName, "^[A-Z]_Boss%d+$" ) then
 		return false
 	end
 	-- Exclude story/NPC rooms (Arachne, Narcissus, etc.): their ForcedReward propagates
