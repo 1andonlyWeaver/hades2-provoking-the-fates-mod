@@ -1057,7 +1057,12 @@ local function buildChoiceRow( screen, key, params )
 	screen.Components[key] = slot
 
 	-- Icon on the far-left of the slot. Vanilla places boon icons here via
-	-- screen.IconOffsetX / IconOffsetY (UpgradeChoiceData.lua:39-40).
+	-- screen.IconOffsetX / IconOffsetY (UpgradeChoiceData.lua:39-40). Optional
+	-- IconOverlayAnim spawns a second BlankObstacle at the same coordinates
+	-- so we can layer effects like BoonUpgradedPreviewSparkles on top of the
+	-- base drop — the same way vanilla composes BoonDropZeusUpgradedPreview
+	-- (Items_General_VFX.sjson defines it as BoonDropZeusPreview +
+	-- ChildAnimation = "BoonUpgradedPreviewSparkles").
 	if params.IconAnim then
 		local icon = CreateScreenComponent({
 			Name  = "BlankObstacle",
@@ -1068,6 +1073,18 @@ local function buildChoiceRow( screen, key, params )
 		})
 		SetAnimation({ Name = params.IconAnim, DestinationId = icon.Id })
 		screen.Components[key .. "Icon"] = icon
+
+		if params.IconOverlayAnim then
+			local overlay = CreateScreenComponent({
+				Name  = "BlankObstacle",
+				Group = screen.ComponentData.DefaultGroup,
+				X     = itemLocationX + screen.IconOffsetX,
+				Y     = itemLocationY + screen.IconOffsetY,
+				Scale = 0.6,
+			})
+			SetAnimation({ Name = params.IconOverlayAnim, DestinationId = overlay.Id })
+			screen.Components[key .. "IconOverlay"] = overlay
+		end
 	end
 
 	-- Title (upper-left area of slot, matching vanilla TitleText offset).
@@ -1251,33 +1268,31 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
-	-- Icon choice: GiftDropPreview is the mystery-boon bag (the "brown bag"
-	-- Charon sells for a random deity's boon). Vanilla's RandomLoot obstacle
-	-- inherits from BaseBoonDrop which uses Graphic = "GiftDrop"; the
-	-- preview-sized variant for UI slots is GiftDropPreview
-	-- (ConsumableData.lua:1841 registers it as the SurfaceShopIcon for
-	-- GiftDrop). Fits our "god is unknown until TransformDoor rolls it"
-	-- semantics better than any specific god's preview.
-	-- Vanilla has no upgraded variant of the bag; the Epic rarity frame on
-	-- the Enhanced row carries the "upgraded" visual cue instead.
+	-- Icons: BlindBoxLoot is vanilla's wrapped-boon animation (defined in
+	-- Items_General_VFX.sjson, backed by Items\Loot\WrappedBoon — the gift-
+	-- wrapped mystery-boon present). For Enhanced Boon, layer
+	-- BoonUpgradedPreviewSparkles on top via IconOverlayAnim — the same
+	-- sparkle overlay vanilla composes with its BoonDrop*UpgradedPreview
+	-- animations.
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "GiftDropPreview"      },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "GiftDropPreview"      },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview" },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BlindBoxLoot"                                        },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BlindBoxLoot", iconOverlayAnim = "BoonUpgradedPreviewSparkles" },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"                                },
 	}
 
 	for i, choice in ipairs( choiceConfigs ) do
 		screen.UpgradeButtons[i] = buildChoiceRow( screen, choice.key, {
-			Index      = i,
-			Door       = door,
-			ChoiceType = choice.choiceType,
-			Title      = choice.title,
-			TitleColor = ProvokeMod.UI.ChoiceColor[choice.choiceType],
-			Cost       = choice.cost,
-			Preview    = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
-			IsCurrent  = (currentChoiceType == choice.choiceType),
-			Rarity     = choice.rarity,
-			IconAnim   = choice.iconAnim,
+			Index           = i,
+			Door            = door,
+			ChoiceType      = choice.choiceType,
+			Title           = choice.title,
+			TitleColor      = ProvokeMod.UI.ChoiceColor[choice.choiceType],
+			Cost            = choice.cost,
+			Preview         = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
+			IsCurrent       = (currentChoiceType == choice.choiceType),
+			Rarity          = choice.rarity,
+			IconAnim        = choice.iconAnim,
+			IconOverlayAnim = choice.iconOverlayAnim,
 		})
 	end
 
