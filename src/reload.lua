@@ -192,12 +192,19 @@ end
 -- mod treats these as provokable targets too, but downstream code that reads
 -- door.Room or auto-proceeds via LeaveRoom must gate on target type.
 -- Fields-biome consumable pickups that correspond to the "minor meta-reward"
--- doors we already accept in other biomes. Scoped to Ash / Bones / Psyche and
--- Nectar by design — Moly / card points, in-run armor, max-mana, gold, and
--- heal drops are intentionally excluded.
+-- doors we already accept in other biomes. Vanilla mapping from
+-- HelpText.en.sjson + ConsumableData.lua:
+--   MetaCurrencyDrop         → Bones (MetaCurrency = 50)
+--   MetaCardPointsCommonDrop → Ashes (MetaCardPointsCommon = 5)
+--   GiftDrop                 → Nectar
+--   MemPointsCommonDrop      → Psyche  -- intentionally NOT provokable
+--   PlantFMolyDrop           → Moly    -- intentionally NOT provokable
+-- In-run loot (MaxManaDrop, ArmorBoost, RoomMoneyDrop, RoomRewardHealDrop) is
+-- also excluded — those aren't cross-run meta-progression rewards.
 ProvokeMod.ProvokableFieldsPickupNames = {
-	MetaCurrencyDrop = true,  -- Ash / Bones / Psyche (ResourceAmount=50)
-	GiftDrop         = true,  -- Nectar
+	MetaCurrencyDrop         = true,  -- Bones
+	MetaCardPointsCommonDrop = true,  -- Ashes
+	GiftDrop                 = true,  -- Nectar
 }
 
 function ProvokeMod.IsProvokableFieldsPickup( useTarget )
