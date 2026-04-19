@@ -70,6 +70,7 @@ function ProvokeMod.ResetRunState()
 		TransientFearActive = false,
 		FearHUDIconIds = nil,           -- HUD cluster showing active vows this room
 		ProvokedDoors = {},
+		ProvokedCages = {},          -- cageObjectId → { ChoiceType, FearCost, RewardId, Cage }
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,
@@ -976,6 +977,134 @@ function ProvokeMod.UnTransformDoor( door )
 	} )
 end
 
+-- Fix 4b stage 2: destroy a MetaCurrencyDrop in Mourning Fields and replace
+-- it in-place with a cage-gated Boon/Hammer reward. Mirrors the vanilla
+-- SpawnRewardCages sequence (RoomLogic.lua:5682-5709): copy ObstacleData,
+-- SpawnObstacle with DestinationId = pickup.ObjectId so the cage inherits the
+-- pickup's position, SetupObstacle, SpawnRoomReward with a matching override,
+-- wire cage.RewardId, UseableOff the reward, then destroy the pickup. Runtime-
+-- spawning means we can't lean on room.CageRewards wiring so we store our own
+-- provocation metadata on RunState.ProvokedCages for cleanup on death.
+function ProvokeMod.TransformFieldsPickup( pickup, choiceType )
+	if pickup == nil or pickup.ObjectId == nil then
+		ProvokeMod.Log.error( "fields", "TransformFieldsPickup: nil pickup" )
+		return nil
+	end
+
+	local pickupId = pickup.ObjectId
+	local pickupName = pickup.Name
+	local currentRoom = CurrentRun and CurrentRun.CurrentRoom
+	if currentRoom == nil then
+		ProvokeMod.Log.error( "fields", "TransformFieldsPickup: no current room" )
+		return nil
+	end
+
+	local fearCost = ProvokeMod.GetFearCost( choiceType )
+	ProvokeMod.Log.info( "fields", "transform begin", {
+		pickupId   = pickupId,
+		pickupName = pickupName,
+		choiceType = choiceType,
+		fearCost   = fearCost,
+	} )
+
+	-- 1. Spawn the cage at the pickup's location. DestinationId = pickupId
+	-- copies the pickup's current position; destroying the pickup afterwards
+	-- does not affect the cage's anchoring.
+	local cage = DeepCopyTable( ObstacleData["FieldsRewardCage"] )
+	cage.ObjectId = SpawnObstacle({
+		Name          = "FieldsRewardCage",
+		DestinationId = pickupId,
+		Group         = "Standing",
+		TriggerOnSpawn = false,
+	})
+	cage.SpawnPointId = pickupId
+	SetupObstacle( cage )
+	ProvokeMod.Log.debug( "fields", "cage spawned", { cageId = cage.ObjectId } )
+
+	-- 2. Spawn the reward. Mirror TransformDoor's room-state toggles so the
+	-- vanilla reward pipeline lands the right shape (Boon rarity override for
+	-- Enhanced, WeaponUpgrade for Hammer). Save + restore each field so the
+	-- rest of the Fields room isn't contaminated.
+	local savedRarities  = currentRoom.BoonRaritiesOverride
+	local savedLootName  = currentRoom.ForceLootName
+	local savedOverrides = currentRoom.RewardOverrides
+
+	currentRoom.ForceLootName   = nil
+	currentRoom.RewardOverrides = nil
+
+	local rewardOverride = "Boon"
+	local lootName = nil
+	if choiceType == "Hammer" then
+		rewardOverride = "WeaponUpgrade"
+	elseif choiceType == "EnhancedBoon" then
+		currentRoom.BoonRaritiesOverride = {
+			Rare = 0.40, Epic = 0.35, Heroic = 0.20, Legendary = 0.05,
+		}
+		local lootData = ChooseLoot()
+		if lootData then lootName = lootData.Name end
+	else -- RegularBoon
+		local lootData = ChooseLoot()
+		if lootData then lootName = lootData.Name end
+	end
+
+	local reward = SpawnRoomReward( currentRoom, {
+		RewardOverride   = rewardOverride,
+		LootName         = lootName,
+		SpawnRewardOnId  = pickupId,
+		AutoLoadPackages = true,
+	})
+
+	-- Restore room-level fields immediately so no other spawn path inherits them.
+	currentRoom.BoonRaritiesOverride = savedRarities
+	currentRoom.ForceLootName        = savedLootName
+	currentRoom.RewardOverrides      = savedOverrides
+
+	if reward == nil or reward.ObjectId == nil then
+		ProvokeMod.Log.error( "fields", "SpawnRoomReward returned nil", {
+			choiceType = choiceType,
+			rewardOverride = rewardOverride,
+		} )
+		-- Best-effort cleanup: drop the orphaned cage so we don't strand it.
+		Destroy({ Id = cage.ObjectId })
+		return nil
+	end
+
+	-- 3. Wire the cage to the reward, lock the reward until combat clears.
+	cage.RewardId = reward.ObjectId
+	UseableOff({ Id = cage.RewardId })
+	ProvokeMod.Log.debug( "fields", "reward spawned + locked", {
+		rewardId = reward.ObjectId,
+		override = rewardOverride,
+		lootName = lootName,
+	} )
+
+	-- 4. Destroy the original pickup now that the cage is anchored.
+	Destroy({ Id = pickupId })
+
+	-- 5. Bookkeeping: track the provocation and advance the greed counter so
+	-- subsequent provocations in this run cost the escalating amount.
+	ProvokeMod.RunState.ProvokedCages = ProvokeMod.RunState.ProvokedCages or {}
+	ProvokeMod.RunState.ProvokedCages[cage.ObjectId] = {
+		ChoiceType = choiceType,
+		FearCost   = fearCost,
+		RewardId   = reward.ObjectId,
+		Cage       = cage,
+	}
+	ProvokeMod.RunState.ProvocationCount = (ProvokeMod.RunState.ProvocationCount or 0) + 1
+	ProvokeMod.RunState.ProvokedCounts[choiceType] =
+		(ProvokeMod.RunState.ProvokedCounts[choiceType] or 0) + 1
+
+	ProvokeMod.Log.info( "fields", "transform complete", {
+		cageId           = cage.ObjectId,
+		rewardId         = reward.ObjectId,
+		choiceType       = choiceType,
+		fearCost         = fearCost,
+		provocationCount = ProvokeMod.RunState.ProvocationCount,
+	} )
+
+	return cage
+end
+
 -- Compute the animation name for a door's new reward icon from LootData.
 function ProvokeMod.GetDoorIconAnimName( door )
 	local room = door.Room
@@ -1673,17 +1802,13 @@ game.ProvokeMod__OnSelectChoice = function( screen, button )
 		isPickup   = button.IsFieldsPickup or false,
 	} )
 
-	-- Fix 4b stage 1: Fields pickup provocations log the intended transform
-	-- and close the menu. No cage is spawned yet (that's stage 2) — this pass
-	-- is just validating detection + menu wiring on the new target type.
+	-- Fix 4b stage 2: Fields pickup commit destroys the consumable in place
+	-- and replaces it with a FieldsRewardCage wrapping a Boon / Hammer reward
+	-- (player must fight the spawned enemies to unlock). Fear injection lands
+	-- in stage 3 once the spawn path is known to work.
 	if button.IsFieldsPickup then
-		ProvokeMod.Log.info( "fields", "stage1_stub: would transform pickup to cage", {
-			pickupId    = target and target.ObjectId,
-			pickupName  = target and target.Name,
-			choiceType  = button.ChoiceType,
-			plannedCost = ProvokeMod.GetFearCost( button.ChoiceType ),
-		} )
 		ProvokeMod.CloseProvocationScreen( screen )
+		ProvokeMod.TransformFieldsPickup( target, button.ChoiceType )
 		return
 	end
 
