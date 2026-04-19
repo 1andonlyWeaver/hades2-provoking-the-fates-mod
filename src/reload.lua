@@ -747,8 +747,8 @@ function ProvokeMod.UpdateFearHUD()
 
 	-- Fields cage-fear isn't stored in ActiveFearStacks — it lives on
 	-- ProvokedCages and lasts exactly one encounter (the cage's combat). If
-	-- any applied cage-fear is present, surface at least "1 room left" so the
-	-- HUD doesn't go label-less during cage combat.
+	-- any applied cage-fear is present, surface at least "1 encounter left"
+	-- so the HUD doesn't go label-less during cage combat.
 	if maxRemaining == 0 then
 		for _, cageData in pairs( ProvokeMod.RunState.ProvokedCages or {} ) do
 			if cageData.FearApplied then
@@ -767,7 +767,7 @@ function ProvokeMod.UpdateFearHUD()
 		})
 		CreateTextBox({
 			Id            = label.Id,
-			Text          = (maxRemaining == 1) and "1 room left" or (tostring( maxRemaining ) .. " rooms left"),
+			Text          = (maxRemaining == 1) and "1 encounter left" or (tostring( maxRemaining ) .. " encounters left"),
 			FontSize      = 15,
 			Color         = { 0.82, 0.75, 1.0, 1.0 },
 			Font          = "P22UndergroundSCMedium",
