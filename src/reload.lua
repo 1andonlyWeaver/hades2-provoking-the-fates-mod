@@ -951,7 +951,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 	})
 	CreateTextBox({
 		Id               = screen.Components.Header.Id,
-		Text             = "The Fates are Satisfied",
+		Text             = "Your Resolve Falters",
 		FontSize         = 28,
 		Color            = ProvokeMod.UI.Violet,
 		Font             = "P22UndergroundSCMedium",
@@ -964,7 +964,7 @@ function ProvokeMod.OpenFatesSatisfiedScreen()
 	})
 	CreateTextBox({
 		Id               = screen.Components.Header.Id,
-		Text             = "They hear no more.",
+		Text             = "You have not the power to compel the Fates further.",
 		OffsetY          = 40,
 		FontSize         = 16,
 		Color            = ProvokeMod.UI.MutedLavender,
@@ -1188,11 +1188,35 @@ function ProvokeMod.OpenProvocationScreen( door )
 		poolCapacity = poolCapacity + math.max( 0, maxRank - current )
 	end
 
-	-- Greed tracks total provocations in the run, so every button shows the
+	-- Greed tracks total provocations in the run, so every choice shares the
 	-- same next-slot position. On re-provoke the selection reverts-then-adds
 	-- (ProvocationCount unchanged) so the new choice occupies the same slot.
 	local totalCount = ProvokeMod.RunState.ProvocationCount or 0
 	local nextPosition = isReprovoke and math.max( 1, totalCount ) or (totalCount + 1)
+
+	-- Early affordability gate: if this is a fresh provoke and none of the
+	-- three options fit inside the remaining pool, short-circuit straight to
+	-- the Fates-Satisfied rejection BEFORE spawning any provocation-screen
+	-- scaffolding. Otherwise the dim + title + flavor components would get
+	-- created, the rejection screen would open on top, and dismissing the
+	-- rejection would leave orphan backdrop components with no interaction
+	-- target — stranding the player on an empty "menu".
+	if not isReprovoke then
+		local minCost = math.min(
+			ProvokeMod.GetFearCost( "RegularBoon",  nextPosition ),
+			ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition ),
+			ProvokeMod.GetFearCost( "Hammer",       nextPosition )
+		)
+		if minCost > poolCapacity then
+			ProvokeMod.Log.info( "provoke", "blocked: no choice fits pool", {
+				objectId     = door.ObjectId,
+				poolCapacity = poolCapacity,
+				minCost      = minCost,
+			} )
+			ProvokeMod.OpenFatesSatisfiedScreen()
+			return
+		end
+	end
 
 	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  nextPosition )
 	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition )
@@ -1313,9 +1337,11 @@ function ProvokeMod.OpenProvocationScreen( door )
 	}
 
 	-- Hide options whose Fear cost exceeds the pool capacity — those would
-	-- silently leak Fear on commit. On a fresh provoke with no viable option
-	-- we fall through to the Fates-Satisfied rejection; on re-provoke we
-	-- still render the screen so Revert / Keep Choice remain reachable.
+	-- silently leak Fear on commit. The "all options filtered on a fresh
+	-- provoke" case is already handled by the early gate above; this block
+	-- only prunes partially-affordable menus and re-provoke screens (where
+	-- Revert / Keep Choice still need to render even with zero viable
+	-- choices).
 	local visibleConfigs = {}
 	local hiddenKeys = {}
 	for _, c in ipairs( choiceConfigs ) do
@@ -1330,14 +1356,6 @@ function ProvokeMod.OpenProvocationScreen( door )
 			poolCapacity = poolCapacity,
 			hidden       = table.concat( hiddenKeys, "," ),
 		} )
-	end
-	if not isReprovoke and #visibleConfigs == 0 then
-		ProvokeMod.Log.info( "provoke", "blocked: no choice fits pool", {
-			objectId     = door.ObjectId,
-			poolCapacity = poolCapacity,
-		} )
-		ProvokeMod.OpenFatesSatisfiedScreen()
-		return
 	end
 
 	for i, choice in ipairs( visibleConfigs ) do
