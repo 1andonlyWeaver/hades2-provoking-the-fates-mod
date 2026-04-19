@@ -2,23 +2,27 @@ return {
   version = 0;
   enabled = true;
 
-  -- Base Transient Fear costs (before greed). The very first provocation of a
-  -- run adds GreedPenalty_PerUse * 1² = GreedPenalty_PerUse on top of the base,
-  -- so set these 1 below the desired first-provocation total (e.g. 2 + 1 = 3
-  -- fear on a first-picked Regular Boon).
-  Cost_RegularBoon = 2;
-  Cost_EnhancedBoon = 5;
-  Cost_Hammer = 9;
+  -- Base Transient Fear costs (before greed). First-pick totals are
+  -- base + the type's GreedMultiplier_* value (see below). With the defaults
+  -- below, a first-picked Regular Boon costs 1 + 1 = 2 Fear; first-picked
+  -- Enhanced Boon costs 2 + 2 = 4; first-picked Hammer costs 3 + 3 = 6.
+  Cost_RegularBoon = 1;
+  Cost_EnhancedBoon = 2;
+  Cost_Hammer = 3;
 
-  -- Greed multiplier. Fear cost = base + ceil(n² * GreedPenalty_PerUse),
+  -- Per-choice-type linear greed. Fear cost = base + ceil(n * multiplier),
   -- where n is the 1-indexed position of this provocation in the run (all
-  -- three choices share one counter, so cross-type spam ramps just as fast
-  -- as same-type). With the default 0.5, the greed series is +1, +2, +5,
-  -- +8, +13, +18, +25... on top of the base cost — a bit gentler than a
-  -- pure square so Fear doesn't outgrow the eligible-vow pool's capacity
-  -- within the first few provocations.
+  -- three choices share one counter, so cross-type spam ramps at each type's
+  -- own rate). Each multiplier is the greed step added per provocation slot:
+  --   RegularBoon  1 → series +1, +2, +3, +4, +5, +6, ...
+  --   EnhancedBoon 2 → series +2, +4, +6, +8, +10, +12, ...
+  --   Hammer       3 → series +3, +6, +9, +12, +15, +18, ...
+  -- Lower to flatten a type's ramp; raise to make it bite harder sooner.
+  -- EnableGreed = false short-circuits greed to 0 for every type.
   EnableGreed = true;
-  GreedPenalty_PerUse = 0.5;
+  GreedMultiplier_RegularBoon  = 1;
+  GreedMultiplier_EnhancedBoon = 2;
+  GreedMultiplier_Hammer       = 3;
 
   -- Fear point threshold for "themed" vow selection. At or below this cost,
   -- a provocation concentrates all ranks on a single randomly chosen vow. Above

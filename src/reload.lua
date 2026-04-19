@@ -88,13 +88,27 @@ end
 -- Section 2: Utility Functions
 -- ============================================================================
 
+-- Per-choice-type greed multiplier used by GetFearCost. The ramp for each
+-- choice is linear: greed = effectiveCount * typeMultiplier, so RegularBoon
+-- grows +1/+2/+3..., EnhancedBoon +2/+4/+6..., Hammer +3/+6/+9... with the
+-- defaults. Reads from config so players can dial each type independently
+-- via their .cfg; `or` fallbacks preserve behaviour when a key is missing
+-- (e.g. a player upgrading over an older .cfg lacking these keys).
+function ProvokeMod.GetGreedMultiplier( choiceType )
+	if choiceType == "RegularBoon"  then return config.GreedMultiplier_RegularBoon  or 1 end
+	if choiceType == "EnhancedBoon" then return config.GreedMultiplier_EnhancedBoon or 2 end
+	if choiceType == "Hammer"       then return config.GreedMultiplier_Hammer       or 3 end
+	return 1
+end
+
 -- Fear cost for a provocation. `effectiveCount` is the 1-indexed position this
 -- provocation will occupy among ALL provocations in the run (1 = first
 -- provocation ever this run, regardless of type). If nil, defaults to
 -- ProvocationCount + 1 (the slot this call would consume if committed now).
--- Formula: base + ceil(effectiveCount² * penalty). Greed is global, so
--- cross-type spam ramps as fast as same-type spam. math.ceil keeps fractional
--- penalties (e.g. 0.5) from rounding the first provocation's greed down to 0.
+-- Formula: base + ceil(effectiveCount * typeMultiplier). The linear ramp is
+-- per-choice-type — RegularBoon gentler, Hammer steeper — via
+-- config.GreedMultiplier_<ChoiceType>. math.ceil keeps fractional multipliers
+-- from rounding the first provocation's greed down to 0.
 function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
@@ -111,7 +125,7 @@ function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	effectiveCount = math.max( 1, effectiveCount )
 	local greedBonus = 0
 	if config.EnableGreed then
-		greedBonus = math.ceil( effectiveCount * effectiveCount * config.GreedPenalty_PerUse )
+		greedBonus = math.ceil( effectiveCount * ProvokeMod.GetGreedMultiplier( choiceType ) )
 	end
 	return baseCost + greedBonus
 end
@@ -552,7 +566,8 @@ end
 
 -- Persistent HUD icon cluster showing each active vow while Fear is applied.
 -- Uses the vanilla MetaUpgradeData[vow].Icon animations on small BlankObstacles
--- arranged horizontally near the top-right of the screen.
+-- arranged horizontally near the top-right of the screen, with a rooms-
+-- remaining label centered beneath the icons.
 function ProvokeMod.UpdateFearHUD()
 	ProvokeMod.ClearFearHUD()
 	if not ProvokeMod.RunState.TransientFearActive then return end
@@ -582,6 +597,36 @@ function ProvokeMod.UpdateFearHUD()
 			table.insert( ids, component.Id )
 		end
 	end
+
+	-- Rooms-remaining label: max RoomsRemaining across every live stack — the
+	-- number of rooms (including this one) the player is still under Fear. At
+	-- each room start the HUD rebuilds from decayed stack values, so the
+	-- label ticks down naturally over the course of a run.
+	local maxRemaining = 0
+	for _, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
+		local rr = stack.RoomsRemaining or 0
+		if rr > maxRemaining then maxRemaining = rr end
+	end
+	if maxRemaining > 0 then
+		local labelX = startX + ((#vows - 1) * iconSpacing) / 2
+		local label = CreateScreenComponent({
+			Name  = "BlankObstacle",
+			Group = "Combat_Menu_TraitTray_Overlay",
+			X     = labelX,
+			Y     = iconY + 62,
+		})
+		CreateTextBox({
+			Id            = label.Id,
+			Text          = (maxRemaining == 1) and "1 room left" or (tostring( maxRemaining ) .. " rooms left"),
+			FontSize      = 15,
+			Color         = { 0.82, 0.75, 1.0, 1.0 },
+			Font          = "P22UndergroundSCMedium",
+			ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+			Justification = "Center",
+		})
+		table.insert( ids, label.Id )
+	end
+
 	ProvokeMod.RunState.FearHUDIconIds = ids
 end
 

@@ -27,12 +27,18 @@ The cost you pay is **Transient Fear** — random Oath of the Unseen vows inject
 
 All values are configurable via r2modman's config editor:
 
-- `Cost_RegularBoon` — Base fear cost for a standard Boon (default: 3)
-- `Cost_EnhancedBoon` — Base fear cost for an enhanced Boon (default: 6)
-- `Cost_Hammer` — Base fear cost for a Daedalus Hammer (default: 10)
-- `EnableGreed` — Toggle the greed multiplier (default: true)
-- `GreedPenalty_PerUse` — Extra fear per previous provocation (default: 1)
-- `MaxTransientFear` — Cap on total Transient Fear in one room (default: 25)
+- `Cost_RegularBoon` — Base Fear cost for a standard Boon, before greed (default: 1)
+- `Cost_EnhancedBoon` — Base Fear cost for an enhanced Boon, before greed (default: 2)
+- `Cost_Hammer` — Base Fear cost for a Daedalus Hammer, before greed (default: 3)
+- `EnableGreed` — Toggle the per-provocation greed ramp (default: true)
+- `GreedMultiplier_RegularBoon` — Greed step added each slot when picking Regular Boon (default: 1)
+- `GreedMultiplier_EnhancedBoon` — Greed step added each slot when picking Enhanced Boon (default: 2)
+- `GreedMultiplier_Hammer` — Greed step added each slot when picking Daedalus Hammer (default: 3)
+- `GreedExtendsDuration` — Each provocation after the first lasts 1 extra room per prior provocation (default: true)
+- `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer` — Base Fear-stack duration per choice type (defaults: 1 / 2 / 3 rooms)
+- `ThemedSplitThreshold` — At or below this Fear cost a provocation concentrates on a single vow; above it the ranks split across two (default: 6)
+- `ProvokeHoldSeconds` — Hold-duration on Interact to open the provocation menu (default: 0.5)
+- `LogLevel` — Playtest log verbosity: TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)
 
 ## Dependencies
 
