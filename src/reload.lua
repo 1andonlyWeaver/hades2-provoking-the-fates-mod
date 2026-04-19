@@ -609,7 +609,10 @@ function ProvokeMod.UpdateFearHUD()
 	table.sort( vows )
 
 	local iconSpacing = 52
-	local startX = ScreenWidth - 40 - (#vows - 1) * iconSpacing
+	-- Right margin 120: the encounters-left label is centered under the icon
+	-- midpoint, and its text is wider than the icon cluster — especially with a
+	-- single vow, where the label would otherwise extend past the screen edge.
+	local startX = ScreenWidth - 120 - (#vows - 1) * iconSpacing
 	local iconY = 128
 	local ids = {}
 	for i, vowName in ipairs( vows ) do
