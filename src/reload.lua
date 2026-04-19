@@ -75,9 +75,6 @@ function ProvokeMod.ResetRunState()
 		ProvokeHintId = nil,
 		HintThreadActive = false,
 		NearestProvokableDoor = nil,
-		-- Reset to false at each OnEncounterEnd; guards the StartEncounter wrap
-		-- from re-applying door-fear when cage-fear already put it in ATV.
-		DoorFearAppliedThisEncounter = false,
 	}
 end
 
@@ -916,34 +913,40 @@ function ProvokeMod.ApplyInjectionAdditively( injection )
 	return appliedRanks
 end
 
--- Apply all active door-fear stacks additively to the current encounter's
--- ShrineUpgrades state, then refresh the HUD + banner off the combined ATV
--- (so cage-fear merged just before by StartFieldsEncounter shows up in the
--- same banner as door-fear). Idempotent per encounter via
--- DoorFearAppliedThisEncounter (reset at OnEncounterEnd) — called from the
--- StartEncounter wrap so every combat encounter re-applies the accumulated
--- stacks' ranks.
+-- Apply all active fear stacks additively to the current encounter's
+-- ShrineUpgrades state, then refresh the HUD + banner off the combined ATV.
+-- Called from the StartEncounter wrap so every combat encounter re-applies
+-- the accumulated stacks' ranks.
+--
+-- Safe to call repeatedly within one encounter: ApplyInjectionAdditively
+-- checks per-vow `already` (AddedRanks in ActiveTransientVows) and clamps
+-- `take` against remaining room, so re-applying the same merged injection
+-- becomes a no-op. That matters in Fields rooms where a passive/background
+-- Default encounter starts at room entry and stays live through cage
+-- combats nested inside it — each cage's StartEncounter re-fires this
+-- function with the full stack list, and the additive clamp keeps the
+-- passive's earlier apply from double-counting.
 function ProvokeMod.ApplyActiveStacksForEncounter()
-	if not ProvokeMod.RunState.DoorFearAppliedThisEncounter then
-		local stacks = ProvokeMod.RunState.ActiveFearStacks
-		if stacks ~= nil and #stacks > 0 then
-			local merged = {}
-			for _, stack in ipairs( stacks ) do
-				for vow, r in pairs( stack.Injection or {} ) do
-					merged[vow] = (merged[vow] or 0) + r
-				end
+	local stacks = ProvokeMod.RunState.ActiveFearStacks
+	if stacks ~= nil and #stacks > 0 then
+		local merged = {}
+		for _, stack in ipairs( stacks ) do
+			for vow, r in pairs( stack.Injection or {} ) do
+				merged[vow] = (merged[vow] or 0) + r
 			end
-			local applied = ProvokeMod.ApplyInjectionAdditively( merged )
+		end
+		local applied = ProvokeMod.ApplyInjectionAdditively( merged )
+		if applied > 0 then
 			ProvokeMod.Log.info( "fear", "active stacks applied for encounter", {
 				stacks       = #stacks,
 				appliedRanks = applied,
 			} )
 		end
-		ProvokeMod.RunState.DoorFearAppliedThisEncounter = true
 	end
 
-	-- Whether we applied anything new or cage-fear already landed, surface a
-	-- single combined banner + HUD refresh off ActiveTransientVows totals.
+	-- Refresh HUD + banner off whatever ended up in ActiveTransientVows
+	-- (covers door-fear, cage-fear just queued by StartFieldsEncounter, or
+	-- both combined).
 	local totalRanks = 0
 	for _, vowData in pairs( ProvokeMod.RunState.ActiveTransientVows or {} ) do
 		totalRanks = totalRanks + (vowData.AddedRanks or 0)
@@ -1970,9 +1973,6 @@ function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 		isCombat      = isCombat,
 		encounterType = currentEncounter and currentEncounter.EncounterType,
 	} )
-	-- Reset the per-encounter flag so the next StartEncounter re-applies
-	-- door-fear fresh (per the new "N encounters" duration semantic).
-	ProvokeMod.RunState.DoorFearAppliedThisEncounter = false
 	if isCombat then
 		-- Combat encounter ended: restore baseline ranks and decay stacks.
 		ProvokeMod.RestoreVowsAndDecayStacks()

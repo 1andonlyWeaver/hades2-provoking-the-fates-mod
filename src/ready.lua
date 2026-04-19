@@ -178,10 +178,11 @@ end, mod )
 -- Vanilla calls StartEncounter(currentRun, currentRoom, encounter) at the top
 -- of every encounter — the first wave of a single-combat room, each wave in a
 -- multi-wave room, and the combat that StartFieldsEncounter kicks off inside
--- a Fields cage. ApplyActiveStacksForEncounter is idempotent via
--- DoorFearAppliedThisEncounter (reset at OnEncounterEnd), so firing it here
--- means every fresh combat encounter gets the accumulated stacks' ranks
--- re-applied. OnEncounterEnd then restores + decays per-encounter — matching
+-- a Fields cage. ApplyActiveStacksForEncounter is idempotent (the additive
+-- `already` clamp inside ApplyInjectionAdditively zeroes out duplicate
+-- ranks), so firing it here gets every encounter's ShrineUpgrades injection
+-- regardless of whether a parallel Fields passive encounter already fired
+-- it first. OnEncounterEnd then restores + decays per-encounter — matching
 -- the "N encounters left" label the player reads.
 modutil.mod.Path.Wrap( "StartEncounter", function( base, currentRun, currentRoom, encounter )
 	ProvokeMod.ApplyActiveStacksForEncounter()
