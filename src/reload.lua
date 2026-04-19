@@ -225,16 +225,17 @@ function ProvokeMod.OnExitsUnlocked()
 end
 
 -- Fix 4a instrumentation: while the player is in Mourning Fields (RoomSetName
--- == "Q"), log the shape of every interactable whose use-prompt shows. Fields
--- doesn't use standard exit doors; it uses FieldsRewardCage obstacles whose
--- underlying reward lives at ActiveObstacles[cage.RewardId]. We don't know the
--- exact Lua-side field names the cage exposes, so this pass dumps a handful of
--- likely fields on both the outer obstacle and its linked reward, plus any of
--- the reward-type fields, so the next pass can write a real cage-detection
--- predicate against actual runtime data.
+-- == "H"), log the shape of every interactable whose use-prompt shows. Fields
+-- routes main rewards through FieldsRewardCage obstacles whose underlying
+-- reward lives at ActiveObstacles[cage.RewardId]; the minor pickups (Ash /
+-- Bones / Psyche) appear to be normal uncaged consumables. We don't know the
+-- exact Lua-side field names either type exposes, so this pass dumps a
+-- handful of likely fields on both the outer obstacle and its linked reward
+-- so the next pass can write a real provokable-in-Fields predicate and a
+-- transform that re-wraps the pickup as a cage-gated boon.
 function ProvokeMod.LogFieldsInteractableShape( objectId )
 	local room = CurrentRun and CurrentRun.CurrentRoom
-	if room == nil or room.RoomSetName ~= "Q" then return end
+	if room == nil or room.RoomSetName ~= "H" then return end
 
 	local obj = ActiveObstacles and ActiveObstacles[objectId] or nil
 
