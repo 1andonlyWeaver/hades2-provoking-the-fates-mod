@@ -92,8 +92,9 @@ end
 -- provocation will occupy among ALL provocations in the run (1 = first
 -- provocation ever this run, regardless of type). If nil, defaults to
 -- ProvocationCount + 1 (the slot this call would consume if committed now).
--- Formula: base + penalty * effectiveCount². Greed is global, so cross-type
--- spam ramps as fast as same-type spam.
+-- Formula: base + ceil(effectiveCount² * penalty). Greed is global, so
+-- cross-type spam ramps as fast as same-type spam. math.ceil keeps fractional
+-- penalties (e.g. 0.5) from rounding the first provocation's greed down to 0.
 function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
@@ -110,7 +111,7 @@ function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	effectiveCount = math.max( 1, effectiveCount )
 	local greedBonus = 0
 	if config.EnableGreed then
-		greedBonus = (effectiveCount * effectiveCount) * config.GreedPenalty_PerUse
+		greedBonus = math.ceil( effectiveCount * effectiveCount * config.GreedPenalty_PerUse )
 	end
 	return baseCost + greedBonus
 end
@@ -1012,33 +1013,19 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
--- Build one choice row. Matches vanilla boon-pickup structure: a Highlight
--- overlay, a BoonSlotBase button with rarity-tier backing, an Icon on the
--- far-left, and attached title / cost / penalty-description text boxes.
--- AttachLua on both slot and highlight is critical — without it the engine's
--- mouseover dispatch can't find the Lua table and the highlight stays dark.
+-- Build one choice row. Matches vanilla boon-pickup structure: a BoonSlotBase
+-- button with rarity-tier backing, a Highlight overlay layered on top so it
+-- reads as an edge-glow rather than an occluded backdrop, an Icon on the
+-- far-left, and attached title / cost / duration / penalty-description text
+-- boxes. AttachLua on both slot and highlight is critical — without it the
+-- engine's mouseover dispatch can't find the Lua table.
 local function buildChoiceRow( screen, key, params )
 	local itemLocationX = ScreenCenterX - 355 + screen.ButtonOffsetX
 	local itemLocationY = (ScreenCenterY - 190) + screen.ButtonSpacingY * ( params.Index - 1 )
 
-	-- Highlight overlay — match ShrineLogic.lua:81-88 exactly: pre-load the
-	-- highlight animation on a BlankObstacle at Alpha 0 during creation, then
-	-- toggle alpha on hover. Pre-loading matters — creating an empty
-	-- BlankObstacle and calling SetAnimation after-the-fact doesn't bind the
-	-- animation properly in practice (the highlight stays dark).
-	local highlight = CreateScreenComponent({
-		Name      = "BlankObstacle",
-		Group     = screen.ComponentData.DefaultGroup,
-		X         = itemLocationX,
-		Y         = itemLocationY,
-		Animation = "BoonSlotHighlight",
-		Alpha     = 0.0,
-	})
-	AttachLua({ Id = highlight.Id, Table = highlight })
-	highlight.Screen = screen
-	screen.Components[key .. "Highlight"] = highlight
-
-	-- BoonSlotBase with the rarity-tier backing animation.
+	-- Slot first so the highlight we spawn next renders on top of it instead
+	-- of behind (components spawned later layer above earlier ones in the
+	-- same Group).
 	local slot = CreateScreenComponent({
 		Name  = "BoonSlotBase",
 		Group = screen.ComponentData.DefaultGroup,
@@ -1053,8 +1040,24 @@ local function buildChoiceRow( screen, key, params )
 	slot.Door       = params.Door
 	slot.Screen     = screen
 	slot.ChoiceType = params.ChoiceType
-	slot.Highlight  = highlight
 	screen.Components[key] = slot
+
+	-- Highlight overlay — match ShrineLogic.lua:81-88: pre-load the highlight
+	-- animation on a BlankObstacle at Alpha 0, then toggle alpha on hover.
+	-- Pre-loading matters — creating an empty BlankObstacle and calling
+	-- SetAnimation after-the-fact doesn't bind the animation properly.
+	local highlight = CreateScreenComponent({
+		Name      = "BlankObstacle",
+		Group     = screen.ComponentData.DefaultGroup,
+		X         = itemLocationX,
+		Y         = itemLocationY,
+		Animation = "BoonSlotHighlight",
+		Alpha     = 0.0,
+	})
+	AttachLua({ Id = highlight.Id, Table = highlight })
+	highlight.Screen = screen
+	screen.Components[key .. "Highlight"] = highlight
+	slot.Highlight = highlight
 
 	-- Icon on the far-left of the slot. Vanilla places boon icons here via
 	-- screen.IconOffsetX / IconOffsetY (UpgradeChoiceData.lua:39-40). Optional
@@ -1113,6 +1116,23 @@ local function buildChoiceRow( screen, key, params )
 		Justification = "Right",
 	})
 
+	-- Duration directly under the cost badge so the price tag reads as
+	-- "+N Fear / M rooms" — the two numbers that define the trade.
+	if params.Duration then
+		local roomsText = params.Duration == 1 and "1 room" or (tostring( params.Duration ) .. " rooms")
+		CreateTextBox({
+			Id            = slot.Id,
+			Text          = "Lasts " .. roomsText,
+			OffsetX       = 410,
+			OffsetY       = -28,
+			FontSize      = 17,
+			Color         = ProvokeMod.UI.MutedLavender,
+			Font          = "LatoMedium",
+			ShadowBlur    = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+			Justification = "Right",
+		})
+	end
+
 	-- Penalty description. Width 830 wraps long injections onto two lines.
 	-- Intro "Fates demand: " prefixes the vow list so the player immediately
 	-- reads this as the cost-side copy, not the reward copy.
@@ -1158,13 +1178,14 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local isReprovoke = existingData ~= nil and existingData.Provoked == true
 	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
 
-	-- Every eligible vow already at native max → rejection dialog instead of
-	-- charging Fear that cannot land. Re-provokes still pass through so the
-	-- player can revert or keep the current choice.
-	if not isReprovoke and ProvokeMod.AllVowsFull() then
-		ProvokeMod.Log.info( "provoke", "blocked: all vows full", { objectId = door.ObjectId } )
-		ProvokeMod.OpenFatesSatisfiedScreen()
-		return
+	-- Total ranks the eligible-vow pool can still absorb. Any option whose
+	-- cost exceeds this would silently leak Fear, so we filter those out of
+	-- the menu entirely below.
+	local poolCapacity = 0
+	for _, vowName in ipairs( ProvokeMod.EligibleVows ) do
+		local current = GameState.ShrineUpgrades[vowName] or 0
+		local maxRank = ProvokeMod.GetVowMaxRank( vowName )
+		poolCapacity = poolCapacity + math.max( 0, maxRank - current )
 	end
 
 	-- Greed tracks total provocations in the run, so every button shows the
@@ -1247,6 +1268,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 		regularCost      = regularCost,
 		enhancedCost     = enhancedCost,
 		hammerCost       = hammerCost,
+		poolCapacity     = poolCapacity,
 	} )
 
 	local function buildPreviewLine( injection )
@@ -1268,6 +1290,16 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
+	-- Duration matches QueueFearStack's formula: base from config.Duration_*,
+	-- plus one extra room per prior provocation when GreedExtendsDuration is
+	-- on. nextPosition is the 1-indexed slot this provocation will occupy, so
+	-- the extension is (nextPosition - 1) — identical to what the stack will
+	-- actually queue with if the player commits to that option.
+	local greedExtension = config.GreedExtendsDuration and math.max( 0, nextPosition - 1 ) or 0
+	local regularDuration  = (config.Duration_RegularBoon  or 1) + greedExtension
+	local enhancedDuration = (config.Duration_EnhancedBoon or 2) + greedExtension
+	local hammerDuration   = (config.Duration_Hammer       or 3) + greedExtension
+
 	-- Icons: BlindBoxLoot is vanilla's wrapped-boon animation (defined in
 	-- Items_General_VFX.sjson, backed by Items\Loot\WrappedBoon — the gift-
 	-- wrapped mystery-boon present). For Enhanced Boon, layer
@@ -1275,12 +1307,40 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- sparkle overlay vanilla composes with its BoonDrop*UpgradedPreview
 	-- animations.
 	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  rarity = "Rare",      iconAnim = "BlindBoxLoot"                                        },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, rarity = "Epic",      iconAnim = "BlindBoxLoot", iconOverlayAnim = "BoonUpgradedPreviewSparkles" },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"                                },
+		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  duration = regularDuration,  rarity = "Rare",      iconAnim = "BlindBoxLoot"                                        },
+		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, duration = enhancedDuration, rarity = "Epic",      iconAnim = "BlindBoxLoot", iconOverlayAnim = "BoonUpgradedPreviewSparkles" },
+		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   duration = hammerDuration,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"                                },
 	}
 
-	for i, choice in ipairs( choiceConfigs ) do
+	-- Hide options whose Fear cost exceeds the pool capacity — those would
+	-- silently leak Fear on commit. On a fresh provoke with no viable option
+	-- we fall through to the Fates-Satisfied rejection; on re-provoke we
+	-- still render the screen so Revert / Keep Choice remain reachable.
+	local visibleConfigs = {}
+	local hiddenKeys = {}
+	for _, c in ipairs( choiceConfigs ) do
+		if c.cost <= poolCapacity then
+			table.insert( visibleConfigs, c )
+		else
+			table.insert( hiddenKeys, c.key )
+		end
+	end
+	if #hiddenKeys > 0 then
+		ProvokeMod.Log.info( "provoke", "hid over-capacity choices", {
+			poolCapacity = poolCapacity,
+			hidden       = table.concat( hiddenKeys, "," ),
+		} )
+	end
+	if not isReprovoke and #visibleConfigs == 0 then
+		ProvokeMod.Log.info( "provoke", "blocked: no choice fits pool", {
+			objectId     = door.ObjectId,
+			poolCapacity = poolCapacity,
+		} )
+		ProvokeMod.OpenFatesSatisfiedScreen()
+		return
+	end
+
+	for i, choice in ipairs( visibleConfigs ) do
 		screen.UpgradeButtons[i] = buildChoiceRow( screen, choice.key, {
 			Index           = i,
 			Door            = door,
@@ -1288,6 +1348,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 			Title           = choice.title,
 			TitleColor      = ProvokeMod.UI.ChoiceColor[choice.choiceType],
 			Cost            = choice.cost,
+			Duration        = choice.duration,
 			Preview         = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
 			IsCurrent       = (currentChoiceType == choice.choiceType),
 			Rarity          = choice.rarity,

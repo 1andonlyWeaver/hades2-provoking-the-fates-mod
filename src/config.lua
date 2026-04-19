@@ -10,13 +10,15 @@ return {
   Cost_EnhancedBoon = 5;
   Cost_Hammer = 9;
 
-  -- Greed multiplier. Fear cost = base + GreedPenalty_PerUse * n², where n is
-  -- the 1-indexed position of this provocation in the run (all three choices
-  -- share one counter, so cross-type spam ramps just as fast as same-type).
-  -- With the default of 1, the greed series is +1, +4, +9, +16, +25... on top
-  -- of the base cost of whichever option is picked.
+  -- Greed multiplier. Fear cost = base + ceil(n² * GreedPenalty_PerUse),
+  -- where n is the 1-indexed position of this provocation in the run (all
+  -- three choices share one counter, so cross-type spam ramps just as fast
+  -- as same-type). With the default 0.5, the greed series is +1, +2, +5,
+  -- +8, +13, +18, +25... on top of the base cost — a bit gentler than a
+  -- pure square so Fear doesn't outgrow the eligible-vow pool's capacity
+  -- within the first few provocations.
   EnableGreed = true;
-  GreedPenalty_PerUse = 1;
+  GreedPenalty_PerUse = 0.5;
 
   -- Fear point threshold for "themed" vow selection. At or below this cost,
   -- a provocation concentrates all ranks on a single randomly chosen vow. Above
