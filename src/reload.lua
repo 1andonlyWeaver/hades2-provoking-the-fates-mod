@@ -744,6 +744,19 @@ function ProvokeMod.UpdateFearHUD()
 		local rr = stack.RoomsRemaining or 0
 		if rr > maxRemaining then maxRemaining = rr end
 	end
+
+	-- Fields cage-fear isn't stored in ActiveFearStacks — it lives on
+	-- ProvokedCages and lasts exactly one encounter (the cage's combat). If
+	-- any applied cage-fear is present, surface at least "1 room left" so the
+	-- HUD doesn't go label-less during cage combat.
+	if maxRemaining == 0 then
+		for _, cageData in pairs( ProvokeMod.RunState.ProvokedCages or {} ) do
+			if cageData.FearApplied then
+				maxRemaining = 1
+				break
+			end
+		end
+	end
 	if maxRemaining > 0 then
 		local labelX = startX + ((#vows - 1) * iconSpacing) / 2
 		local label = CreateScreenComponent({
@@ -1033,6 +1046,12 @@ function ProvokeMod.ApplyCageFear( cageData )
 	-- cage combat is suffering under. RestoreVowsOnly → ClearFearHUD handles
 	-- the wipe when combat ends.
 	ProvokeMod.UpdateFearHUD()
+
+	-- Same "The Fates are Provoked (+N Fear)" banner + cascading vow-effect
+	-- lines that door-provocations get at room start. The current room is
+	-- also the cage's room, so cleanup scopes correctly on room transition.
+	local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
+	ProvokeMod.ShowFearBanner( appliedRanks, vowLines, CurrentRun and CurrentRun.CurrentRoom )
 
 	ProvokeMod.Log.info( "fields", "cage_fear_applied", {
 		choiceType   = cageData.ChoiceType,
@@ -1938,6 +1957,80 @@ end
 -- Section 7: Room Entry/Exit Fear Management
 -- ============================================================================
 
+-- Centered banner: "The Fates are Provoked  (+N Fear)" with the list of vow
+-- effects cascading below it, fading out after a few seconds. Shared between
+-- OnRoomStart (door-fear landing on room entry) and ApplyCageFear (cage-fear
+-- landing mid-room when the player triggers a provoked cage). `roomRef` is
+-- captured so the cleanup thread can bail if the player left the room early.
+function ProvokeMod.ShowFearBanner( totalRanks, vowLines, roomRef )
+	if totalRanks == nil or totalRanks <= 0 then return end
+
+	local banner = CreateScreenComponent({
+		Name = "BlankObstacle",
+		Group = "Combat_Menu_TraitTray_Overlay",
+		X = ScreenCenterX,
+		Y = 128,
+	})
+	CreateTextBox({
+		Id = banner.Id,
+		Text = "The Fates are Provoked  (+" .. totalRanks .. " Fear)",
+		FontSize = 26,
+		Color = { 0.74, 0.63, 1.0, 1.0 },
+		Font = "P22UndergroundSCHeavy",
+		ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
+		Justification = "Center",
+		OutlineThickness = 2,
+		OutlineColor = { 0, 0, 0, 1 },
+	})
+
+	local bannerRoom = roomRef
+	thread( function()
+		local allIds = { banner.Id }
+		local lineY = 160
+
+		wait( 0.6 )
+		for _, lineText in ipairs( vowLines or {} ) do
+			local line = CreateScreenComponent({
+				Name = "BlankObstacle",
+				Group = "Combat_Menu_TraitTray_Overlay",
+				X = ScreenCenterX,
+				Y = lineY,
+			})
+			CreateTextBox({
+				Id = line.Id,
+				Text = lineText,
+				FontSize = 18,
+				Color = { 0.85, 0.78, 1.0, 0.9 },
+				Font = "P22UndergroundSCMedium",
+				ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
+				Justification = "Center",
+				OutlineThickness = 1,
+				OutlineColor = { 0, 0, 0, 1 },
+			})
+			table.insert( allIds, line.Id )
+			lineY = lineY + 24
+			wait( 0.15 )
+		end
+
+		wait( 3.0 )
+		-- If the room changed during the wait, the IDs are already destroyed by
+		-- the room transition. Skip cleanup to avoid operating on stale/reused IDs.
+		if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
+			return
+		end
+		for _, id in ipairs( allIds ) do
+			ModifyTextBox({ Id = id, FadeTarget = 0, FadeDuration = 0.5 })
+		end
+		wait( 0.5 )
+		if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
+			return
+		end
+		for _, id in ipairs( allIds ) do
+			Destroy({ Id = id })
+		end
+	end)
+end
+
 -- Called from StartRoom wrap after the room initializes
 function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 	-- Track how many encounters this room has so OnEncounterEnd only removes fear
@@ -1958,76 +2051,8 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 		end
 		ProvokeMod.RunState.LastFearCost = totalRanks
 
-		-- Collect sorted vow effect strings now that ActiveTransientVows is populated
 		local vowLines = ProvokeMod.GetVowListText( ProvokeMod.RunState.ActiveTransientVows )
-
-		-- Title line: "The Fates are Provoked  (+N Fear)"
-		local banner = CreateScreenComponent({
-			Name = "BlankObstacle",
-			Group = "Combat_Menu_TraitTray_Overlay",
-			X = ScreenCenterX,
-			Y = 128,
-		})
-		CreateTextBox({
-			Id = banner.Id,
-			Text = "The Fates are Provoked  (+" .. totalRanks .. " Fear)",
-			FontSize = 26,
-			Color = { 0.74, 0.63, 1.0, 1.0 },
-			Font = "P22UndergroundSCHeavy",
-			ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 3 },
-			Justification = "Center",
-			OutlineThickness = 2,
-			OutlineColor = { 0, 0, 0, 1 },
-		})
-
-		-- Vow lines are created one-by-one inside the thread so they pop in sequentially.
-		-- Capture the room reference so cleanup can bail out if the player leaves early.
-		local bannerRoom = currentRoom
-		thread( function()
-			local allIds = { banner.Id }
-			local lineY = 160
-
-			wait( 0.6 )
-			for _, lineText in ipairs( vowLines ) do
-				local line = CreateScreenComponent({
-					Name = "BlankObstacle",
-					Group = "Combat_Menu_TraitTray_Overlay",
-					X = ScreenCenterX,
-					Y = lineY,
-				})
-				CreateTextBox({
-					Id = line.Id,
-					Text = lineText,
-					FontSize = 18,
-					Color = { 0.85, 0.78, 1.0, 0.9 },
-					Font = "P22UndergroundSCMedium",
-					ShadowBlur = 0, ShadowColor = { 0, 0, 0, 1 }, ShadowOffset = { 0, 2 },
-					Justification = "Center",
-					OutlineThickness = 1,
-					OutlineColor = { 0, 0, 0, 1 },
-				})
-				table.insert( allIds, line.Id )
-				lineY = lineY + 24
-				wait( 0.15 )
-			end
-
-			wait( 3.0 )
-			-- If the room changed during the wait, the IDs are already destroyed by the
-			-- room transition. Skip cleanup to avoid operating on stale/reused IDs.
-			if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
-				return
-			end
-			for _, id in ipairs( allIds ) do
-				ModifyTextBox({ Id = id, FadeTarget = 0, FadeDuration = 0.5 })
-			end
-			wait( 0.5 )
-			if CurrentRun and CurrentRun.CurrentRoom ~= bannerRoom then
-				return
-			end
-			for _, id in ipairs( allIds ) do
-				Destroy({ Id = id })
-			end
-		end)
+		ProvokeMod.ShowFearBanner( totalRanks, vowLines, currentRoom )
 	end
 
 	-- Hint spawning is handled in OnExitsUnlocked (triggered by DoUnlockRoomExits hook),
