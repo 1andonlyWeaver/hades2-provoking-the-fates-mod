@@ -10,26 +10,26 @@ When approaching a door offering a minor reward (Bones, Ash, Psyche), a secondar
 
 Pressing it opens a 3-card selection menu:
 
-| Option | Result | Base Fear Cost |
-|--------|--------|----------------|
-| Olympian Favor | Standard God Boon | +3 |
-| Exalted Favor | Enhanced rarity Boon (Rare/Epic/Heroic/Duo) | +6 |
-| Artificer's Design | Daedalus Hammer (bypasses run limit) | +10 |
+| Option | Result | First-Pick Fear Cost |
+|--------|--------|----------------------|
+| Olympian Favor | Standard God Boon | +1 |
+| Exalted Favor | Enhanced rarity Boon (Rare/Epic/Heroic/Duo) | +2 |
+| Artificer's Design | Daedalus Hammer (bypasses run limit) | +3 |
 
 ## Transient Fear
 
-The cost you pay is **Transient Fear** — random Oath of the Unseen vows injected into the upcoming encounter only. They vanish when the room is cleared.
+The cost you pay is **Transient Fear** — random Oath of the Unseen vows injected into the upcoming combat room. They vanish once the fear's duration (in combat rooms) runs out.
 
-- **Greed Multiplier**: Each use in a run increases all costs by +1
-- **Spillover**: If a randomly selected vow is already maxed, the fear spills into vows you left at Rank 0 — targeting your build's blind spots
+- **Linear greed**: Fear cost = `multiplier × n`, where n is the 1-indexed slot of this provocation in the run. Hammer series: 3, 6, 9, 12…; Enhanced series: 2, 4, 6, 8…; Regular series: 1, 2, 3, 4…
+- **Capped pool**: If a provocation's cost would exceed the remaining vow-pool capacity, that option is hidden from the menu. When every option is over-capacity, a rejection dialog appears instead of charging Fear that cannot land.
 
 ## Configuration
 
 All values are configurable via r2modman's config editor:
 
-- `Cost_RegularBoon` — Base Fear cost for a standard Boon, before greed (default: 1)
-- `Cost_EnhancedBoon` — Base Fear cost for an enhanced Boon, before greed (default: 2)
-- `Cost_Hammer` — Base Fear cost for a Daedalus Hammer, before greed (default: 3)
+- `Cost_RegularBoon` — Optional flat Fear offset added on top of the Regular Boon greed ramp (default: 0)
+- `Cost_EnhancedBoon` — Optional flat Fear offset added on top of the Enhanced Boon greed ramp (default: 0)
+- `Cost_Hammer` — Optional flat Fear offset added on top of the Hammer greed ramp (default: 0)
 - `EnableGreed` — Toggle the per-provocation greed ramp (default: true)
 - `GreedMultiplier_RegularBoon` — Greed step added each slot when picking Regular Boon (default: 1)
 - `GreedMultiplier_EnhancedBoon` — Greed step added each slot when picking Enhanced Boon (default: 2)

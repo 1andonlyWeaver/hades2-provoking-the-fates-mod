@@ -2,23 +2,25 @@ return {
   version = 0;
   enabled = true;
 
-  -- Base Transient Fear costs (before greed). First-pick totals are
-  -- base + the type's GreedMultiplier_* value (see below). With the defaults
-  -- below, a first-picked Regular Boon costs 1 + 1 = 2 Fear; first-picked
-  -- Enhanced Boon costs 2 + 2 = 4; first-picked Hammer costs 3 + 3 = 6.
-  Cost_RegularBoon = 1;
-  Cost_EnhancedBoon = 2;
-  Cost_Hammer = 3;
+  -- Optional flat Fear offsets added on top of the greed ramp. Default 0 so
+  -- the full Fear cost is exactly GreedMultiplier_<Type> × n (see below),
+  -- yielding first-pick costs of 1 / 2 / 3 and second-pick costs of 2 / 4 / 6
+  -- for Regular / Enhanced / Hammer. Raise these to make a given choice type
+  -- always charge at least that much Fear before greed is added.
+  Cost_RegularBoon = 0;
+  Cost_EnhancedBoon = 0;
+  Cost_Hammer = 0;
 
-  -- Per-choice-type linear greed. Fear cost = base + ceil(n * multiplier),
+  -- Per-choice-type linear greed. Fear cost = Cost_<Type> + ceil(n * multiplier),
   -- where n is the 1-indexed position of this provocation in the run (all
   -- three choices share one counter, so cross-type spam ramps at each type's
-  -- own rate). Each multiplier is the greed step added per provocation slot:
-  --   RegularBoon  1 → series +1, +2, +3, +4, +5, +6, ...
-  --   EnhancedBoon 2 → series +2, +4, +6, +8, +10, +12, ...
-  --   Hammer       3 → series +3, +6, +9, +12, +15, +18, ...
+  -- own rate). With Cost_* = 0 the cost is simply multiplier × n:
+  --   RegularBoon  1 → series 1, 2, 3, 4, 5, 6, ...
+  --   EnhancedBoon 2 → series 2, 4, 6, 8, 10, 12, ...
+  --   Hammer       3 → series 3, 6, 9, 12, 15, 18, ...
   -- Lower to flatten a type's ramp; raise to make it bite harder sooner.
-  -- EnableGreed = false short-circuits greed to 0 for every type.
+  -- EnableGreed = false short-circuits greed to 0 for every type (only the
+  -- flat Cost_<Type> offset is charged).
   EnableGreed = true;
   GreedMultiplier_RegularBoon  = 1;
   GreedMultiplier_EnhancedBoon = 2;

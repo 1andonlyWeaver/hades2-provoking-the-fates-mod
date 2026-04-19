@@ -105,18 +105,20 @@ end
 -- provocation will occupy among ALL provocations in the run (1 = first
 -- provocation ever this run, regardless of type). If nil, defaults to
 -- ProvocationCount + 1 (the slot this call would consume if committed now).
--- Formula: base + ceil(effectiveCount * typeMultiplier). The linear ramp is
--- per-choice-type — RegularBoon gentler, Hammer steeper — via
--- config.GreedMultiplier_<ChoiceType>. math.ceil keeps fractional multipliers
--- from rounding the first provocation's greed down to 0.
+-- Formula: Cost_<Type> + ceil(effectiveCount * typeMultiplier). Cost_<Type>
+-- defaults to 0 so the greed ramp alone determines cost (1/2/3 for first
+-- pick, 2/4/6 for second, ...); raise Cost_<Type> in config.lua to apply a
+-- flat offset on top. The linear ramp is per-choice-type — RegularBoon
+-- gentler, Hammer steeper — via config.GreedMultiplier_<ChoiceType>.
+-- math.ceil keeps fractional multipliers from rounding greed down to 0.
 function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 	local baseCost = 0
 	if choiceType == "RegularBoon" then
-		baseCost = config.Cost_RegularBoon
+		baseCost = config.Cost_RegularBoon or 0
 	elseif choiceType == "EnhancedBoon" then
-		baseCost = config.Cost_EnhancedBoon
+		baseCost = config.Cost_EnhancedBoon or 0
 	elseif choiceType == "Hammer" then
-		baseCost = config.Cost_Hammer
+		baseCost = config.Cost_Hammer or 0
 	end
 	if effectiveCount == nil then
 		local totalCount = (ProvokeMod.RunState and ProvokeMod.RunState.ProvocationCount) or 0
@@ -128,6 +130,25 @@ function ProvokeMod.GetFearCost( choiceType, effectiveCount )
 		greedBonus = math.ceil( effectiveCount * ProvokeMod.GetGreedMultiplier( choiceType ) )
 	end
 	return baseCost + greedBonus
+end
+
+-- EncounterType values (see /Content/Scripts/EncounterData*.lua) that should NOT
+-- tick Fear-stack duration on end. Anything not listed here — "Default", "Boss",
+-- "Miniboss", "ArachneCombat", "EliteChallenge", "PerfectClear", "TimeChallenge"
+-- and friends — is treated as combat and decays one room off each active stack.
+ProvokeMod.NonCombatEncounterTypes = {
+	NonCombat = true,
+	Devotion  = true,
+}
+
+-- Duration-decay gate: returns true when the ended encounter actually pitted the
+-- player against enemies. Nil / unset EncounterType defaults to "combat" so we
+-- over-tick rather than over-hold on unfamiliar room shapes.
+function ProvokeMod.IsCombatEncounter( encounter )
+	if encounter == nil then return true end
+	local et = encounter.EncounterType
+	if et == nil then return true end
+	return not ProvokeMod.NonCombatEncounterTypes[et]
 end
 
 function ProvokeMod.IsMetaProgressDoor( door )
@@ -1233,6 +1254,26 @@ function ProvokeMod.OpenProvocationScreen( door )
 		poolCapacity = poolCapacity + math.max( 0, maxRank - current )
 	end
 
+	-- Subtract Fear already reserved by active stacks. At door-interaction time,
+	-- GameState.ShrineUpgrades is back to baseline (RestoreVowsOnly ran at the
+	-- previous combat's end) and active stacks will re-apply in the upcoming
+	-- combat room on top of any new provocation. Without this subtraction the
+	-- filter would happily let a second provocation stack past pool capacity
+	-- and silently leak the overflow.
+	local activeFearTotal = 0
+	for _, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
+		activeFearTotal = activeFearTotal + (stack.FearCost or 0)
+	end
+	if activeFearTotal > 0 then
+		local rawCapacity = poolCapacity
+		poolCapacity = math.max( 0, poolCapacity - activeFearTotal )
+		ProvokeMod.Log.info( "provoke", "capacity_adjusted", {
+			rawCapacity     = rawCapacity,
+			activeFearTotal = activeFearTotal,
+			poolCapacity    = poolCapacity,
+		} )
+	end
+
 	-- Greed tracks total provocations in the run, so every choice shares the
 	-- same next-slot position. On re-provoke the selection reverts-then-adds
 	-- (ProvocationCount unchanged) so the new choice occupies the same slot.
@@ -1674,15 +1715,28 @@ function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 	ProvokeMod.RunState.RoomEncountersCompleted = (ProvokeMod.RunState.RoomEncountersCompleted or 0) + 1
 	local expected = ProvokeMod.RunState.RoomEncounterCount or 1
 	local isLast   = ProvokeMod.RunState.RoomEncountersCompleted >= expected
+	local isCombat = ProvokeMod.IsCombatEncounter( currentEncounter )
 	ProvokeMod.Log.info( "room", "encounter_end", {
-		completed = ProvokeMod.RunState.RoomEncountersCompleted,
-		expected  = expected,
-		isLast    = isLast,
+		completed     = ProvokeMod.RunState.RoomEncountersCompleted,
+		expected      = expected,
+		isLast        = isLast,
+		isCombat      = isCombat,
+		encounterType = currentEncounter and currentEncounter.EncounterType,
 	} )
 	if isLast then
-		-- Last encounter of this room: restore baseline ranks and decay stacks.
-		ProvokeMod.RestoreVowsAndDecayStacks()
-		ProvokeMod.LogFearStackState( "encounter_end" )
+		if isCombat then
+			-- Last combat encounter of this room: restore baseline ranks and decay stacks.
+			ProvokeMod.RestoreVowsAndDecayStacks()
+			ProvokeMod.LogFearStackState( "encounter_end" )
+		else
+			-- Non-combat room (Devotion trial, NPC beat, etc.): scrub any injected
+			-- ranks but leave RoomsRemaining untouched so Fear rides over the filler.
+			ProvokeMod.RestoreVowsOnly()
+			ProvokeMod.Log.info( "room", "encounter_end_skip_decay", {
+				encounterType = currentEncounter and currentEncounter.EncounterType,
+				stacks        = (ProvokeMod.RunState.ActiveFearStacks and #ProvokeMod.RunState.ActiveFearStacks) or 0,
+			} )
+		end
 	end
 	-- LeaveRoom calls RestoreVowsOnly unconditionally as a final safety net.
 end
