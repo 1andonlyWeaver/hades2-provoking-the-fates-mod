@@ -1270,10 +1270,12 @@ function ProvokeMod.OpenProvocationScreen( door )
 
 	-- SourceIcon is the symbol "Melinoe is holding" in the ShopBackground
 	-- sprite. Vanilla sets it to the offering god's Icon; we don't have a
-	-- god so we use the hammer symbol — the most distinctive of the three
-	-- offerings and thematically the "heaviest" gift of the Fates.
+	-- god, so we use MetaFabricDrop — the 60-frame Fate Fabric animation
+	-- (Items_General_VFX.sjson, backed by Items\Resources\Common\MetaFabric).
+	-- The fabric is literally what the Fates weave, so it reads as "this is
+	-- the Fates' offering" in a way no single god's icon can.
 	if screen.Components.SourceIcon then
-		SetAnimation({ Name = "BoonSymbolHammer", DestinationId = screen.Components.SourceIcon.Id })
+		SetAnimation({ Name = "MetaFabricDrop", DestinationId = screen.Components.SourceIcon.Id })
 	end
 
 	-- Replace vanilla placeholder text with our ritual copy.
