@@ -623,27 +623,15 @@ function ProvokeMod.UpdateFearHUD()
 		end
 	end
 
-	-- Rooms-remaining label: max RoomsRemaining across every live stack — the
-	-- number of rooms (including this one) the player is still under Fear. At
-	-- each room start the HUD rebuilds from decayed stack values, so the
-	-- label ticks down naturally over the course of a run.
+	-- Encounters-remaining label: max RoomsRemaining across every live stack
+	-- — the number of combat encounters (including this one) the player is
+	-- still under Fear. Door-fear and cage-fear both live in ActiveFearStacks
+	-- now (ApplyCageFear queues via QueueFearStack), so this one read covers
+	-- both cases.
 	local maxRemaining = 0
 	for _, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
 		local rr = stack.RoomsRemaining or 0
 		if rr > maxRemaining then maxRemaining = rr end
-	end
-
-	-- Fields cage-fear isn't stored in ActiveFearStacks — it lives on
-	-- ProvokedCages and lasts exactly one encounter (the cage's combat). If
-	-- any applied cage-fear is present, surface at least "1 encounter left"
-	-- so the HUD doesn't go label-less during cage combat.
-	if maxRemaining == 0 then
-		for _, cageData in pairs( ProvokeMod.RunState.ProvokedCages or {} ) do
-			if cageData.FearApplied then
-				maxRemaining = 1
-				break
-			end
-		end
 	end
 	if maxRemaining > 0 then
 		local labelX = startX + ((#vows - 1) * iconSpacing) / 2
@@ -967,20 +955,22 @@ function ProvokeMod.ApplyActiveStacksForEncounter()
 	end
 end
 
--- Fix 4b stage 3: apply a provoked Fields cage's pre-rolled injection to
--- GameState.ShrineUpgrades additively. StartEncounter's wrap fires right
--- after this and shows the combined banner/HUD off ActiveTransientVows, so
--- we don't paint either here — just apply + mark. Applied exactly once per
--- cage — idempotent via FearApplied.
+-- Fix 4b stage 3: promote a provoked Fields cage's pre-rolled injection into
+-- a real ActiveFearStacks stack when the cage's combat starts. Routing
+-- through QueueFearStack gives the cage-fear the same RoomsRemaining decay
+-- loop door-fear uses, so a Hammer-provoked cage lasts its full
+-- Duration_Hammer encounters instead of evaporating on first combat end.
+-- StartEncounter's wrap fires immediately after this and injects the newly-
+-- queued stack into ShrineUpgrades — no direct ATV writes here. Applied
+-- exactly once per cage via FearApplied.
 function ProvokeMod.ApplyCageFear( cageData )
 	if cageData == nil or cageData.FearApplied then return end
-	local appliedRanks = ProvokeMod.ApplyInjectionAdditively( cageData.Injection )
+	ProvokeMod.QueueFearStack( cageData.ChoiceType, cageData.Injection, cageData.FearCost )
 	cageData.FearApplied = true
 
-	ProvokeMod.Log.info( "fields", "cage_fear_applied", {
-		choiceType   = cageData.ChoiceType,
-		fearCost     = cageData.FearCost,
-		appliedRanks = appliedRanks,
+	ProvokeMod.Log.info( "fields", "cage_fear_queued", {
+		choiceType = cageData.ChoiceType,
+		fearCost   = cageData.FearCost,
 	} )
 end
 
