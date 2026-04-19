@@ -1017,6 +1017,11 @@ function ProvokeMod.ApplyCageFear( cageData )
 	ProvokeMod.RunState.TransientFearActive = true
 	cageData.FearApplied = true
 
+	-- Refresh the HUD cluster so the player actually sees the vow icons the
+	-- cage combat is suffering under. RestoreVowsOnly → ClearFearHUD handles
+	-- the wipe when combat ends.
+	ProvokeMod.UpdateFearHUD()
+
 	ProvokeMod.Log.info( "fields", "cage_fear_applied", {
 		choiceType   = cageData.ChoiceType,
 		fearCost     = cageData.FearCost,
