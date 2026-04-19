@@ -233,50 +233,53 @@ end
 -- handful of likely fields on both the outer obstacle and its linked reward
 -- so the next pass can write a real provokable-in-Fields predicate and a
 -- transform that re-wraps the pickup as a cage-gated boon.
-function ProvokeMod.LogFieldsInteractableShape( objectId )
+function ProvokeMod.LogFieldsInteractableShape( objectId, useTarget )
 	local room = CurrentRun and CurrentRun.CurrentRoom
 	if room == nil or room.RoomSetName ~= "H" then return end
 
-	local obj = ActiveObstacles and ActiveObstacles[objectId] or nil
+	-- Vanilla ShowUseButton receives the useTarget object directly (see
+	-- UILogic.lua:229 — triggerArgs.AttachedTable). It's also mirrored at
+	-- SessionMapState.ActiveUseTarget for other consumers.
+	local t = useTarget
+	if t == nil and SessionMapState and SessionMapState.ActiveUseTarget then
+		t = SessionMapState.ActiveUseTarget
+	end
 
 	local kvs = {
 		objectId    = objectId,
 		roomSetName = room.RoomSetName,
-		obsPresent  = obj ~= nil,
+		hasTarget   = t ~= nil,
 	}
-	if obj ~= nil then
-		kvs.obs_Name             = obj.Name
-		kvs.obs_ObjectType       = obj.ObjectType
-		kvs.obs_RewardId         = obj.RewardId
-		kvs.obs_ConsumableType   = obj.ConsumableType
-		kvs.obs_UseFunctionName  = obj.UseFunctionName
-		kvs.obs_RewardStoreName  = obj.RewardStoreName
-		kvs.obs_RewardType       = obj.RewardType
-		kvs.obs_ChosenRewardType = obj.ChosenRewardType
-		kvs.obs_ForceLootName    = obj.ForceLootName
-		kvs.obs_Activated        = obj.Activated
-		kvs.obs_InRange          = obj.InRange
-		kvs.obs_ReadyToUse       = obj.ReadyToUse
-		kvs.obs_hasRoom          = obj.Room ~= nil
-		if obj.Room then
-			kvs.obs_Room_ChosenRewardType = obj.Room.ChosenRewardType
-			kvs.obs_Room_RewardStoreName  = obj.Room.RewardStoreName
-		end
+	if t ~= nil then
+		kvs.t_Name             = t.Name
+		kvs.t_ObjectType       = t.ObjectType
+		kvs.t_ObjectId         = t.ObjectId
+		kvs.t_RewardId         = t.RewardId
+		kvs.t_ConsumableType   = t.ConsumableType
+		kvs.t_ConsumableName   = t.ConsumableName
+		kvs.t_UseFunctionName  = t.UseFunctionName
+		kvs.t_OnUsedFunctionName = t.OnUsedFunctionName
+		kvs.t_RewardType       = t.RewardType
+		kvs.t_RewardStoreName  = t.RewardStoreName
+		kvs.t_ChosenRewardType = t.ChosenRewardType
+		kvs.t_ForceLootName    = t.ForceLootName
+		kvs.t_ResourceName     = t.ResourceName
+		kvs.t_ResourceAmount   = t.ResourceAmount
+		kvs.t_MetaDrop         = t.MetaDrop
+		kvs.t_LootName         = t.LootName
+		kvs.t_UseText          = t.UseText
+		kvs.t_UnlockedUseText  = t.UnlockedUseText
+		kvs.t_hasRoom          = t.Room ~= nil
 	end
 
-	if obj and obj.RewardId and ActiveObstacles then
-		local linked = ActiveObstacles[obj.RewardId]
-		kvs.lnk_Present = linked ~= nil
-		if linked ~= nil then
-			kvs.lnk_Name             = linked.Name
-			kvs.lnk_ObjectType       = linked.ObjectType
-			kvs.lnk_ConsumableType   = linked.ConsumableType
-			kvs.lnk_RewardType       = linked.RewardType
-			kvs.lnk_ForceLootName    = linked.ForceLootName
-			kvs.lnk_ChosenRewardType = linked.ChosenRewardType
-			kvs.lnk_RewardStoreName  = linked.RewardStoreName
-		end
+	-- Also log room.CageRewards / room.SpawnPoints briefly so we can see the
+	-- overall structure of a Fields room from a single log.
+	kvs.room_hasCageRewards = room.CageRewards ~= nil
+	if room.CageRewards then
+		kvs.room_cageRewards_count = #room.CageRewards
 	end
+	kvs.room_chosenRewardType = room.ChosenRewardType
+	kvs.room_rewardStoreName  = room.RewardStoreName
 
 	ProvokeMod.Log.info( "fields", "show_use_button_shape", kvs )
 end
@@ -284,8 +287,8 @@ end
 -- Called when the game shows a use prompt for an obstacle (player entered interact range).
 -- Shows the Provoke hint only when the relevant MetaProgress door is in range,
 -- and tracks which door the player is currently nearest to.
-function ProvokeMod.OnShowUseButton( objectId )
-	ProvokeMod.LogFieldsInteractableShape( objectId )
+function ProvokeMod.OnShowUseButton( objectId, useTarget )
+	ProvokeMod.LogFieldsInteractableShape( objectId, useTarget )
 	if MapState == nil or MapState.OfferedExitDoors == nil then return end
 	local door = MapState.OfferedExitDoors[objectId]
 	if door == nil then

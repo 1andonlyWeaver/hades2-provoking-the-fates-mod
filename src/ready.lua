@@ -154,7 +154,7 @@ end, mod )
 -- ============================================================================
 modutil.mod.Path.Wrap( "ShowUseButton", function( base, objectId, useTarget )
 	local result = base( objectId, useTarget )
-	ProvokeMod.OnShowUseButton( objectId )
+	ProvokeMod.OnShowUseButton( objectId, useTarget )
 	return result
 end, mod )
 
