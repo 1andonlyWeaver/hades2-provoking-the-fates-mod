@@ -1,3 +1,5 @@
+> **Historical design document.** Some mechanics below have since diverged; see [README.md](README.md) and [src/reload.lua](src/reload.lua) for current behavior.
+
 # **Hades 2 Mod Design Document: Provoking the Fates**
 
 ## **1\. Overview & Philosophy**

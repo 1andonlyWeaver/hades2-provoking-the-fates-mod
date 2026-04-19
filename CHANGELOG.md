@@ -9,5 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial project scaffold following Hades2ModTemplate conventions
-- Config options for Transient Fear costs, greed multiplier, and safety limits
+- Hold-Interact on any minor meta-reward door (Bones/Ash/Nectar) opens a 3-option provocation menu: upgrade to a standard Boon, an Enhanced (Rare+) Boon, or a Daedalus Hammer that bypasses the per-run limit.
+- Same provoke flow works on Mourning Fields reward cages (Bones, Ashes, Nectar) — committing a choice auto-starts the cage combat.
+- Transient Fear system injects random Oath of the Unseen vow ranks into upcoming combat encounters, decaying over a configurable duration.
+- Per-type linear greed ramp (Regular 1/2/3…, Enhanced 2/4/6…, Hammer 3/6/9…) with optional flat cost offsets.
+- Over-capacity filter hides options whose Fear cost won't fit the remaining vow pool; a full-block rejection dialog fires when nothing fits.
+- HUD banner on encounter start ("The Fates have been provoked") plus an "N encounters left" duration label.
+- r2modman-editable config: greed multipliers, durations, hold-seconds, themed-split threshold, log level.

@@ -4,7 +4,7 @@ A Hades II mod that lets you upgrade minor reward doors into powerful Boons and 
 
 ## How It Works
 
-When approaching a door offering a minor reward (Bones, Ash, Psyche), a secondary prompt appears:
+When approaching a door offering a minor reward (Bones, Ash, Nectar), a secondary prompt appears:
 
 **[Cast] — Provoke the Fates**
 
@@ -40,6 +40,13 @@ All values are configurable via r2modman's config editor:
 - `ProvokeHoldSeconds` — Hold-duration on Interact to open the provocation menu (default: 0.5)
 - `LogLevel` — Playtest log verbosity: TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)
 
+## Installation
+
+1. Install [r2modman](https://thunderstore.io/package/ebkr/r2modmanPlus/) and select **Hades II** from the game list.
+2. Search for **ProvokingTheFates** in the Online tab and install — r2modman pulls the dependencies automatically.
+3. Launch Hades II through r2modman.
+4. (Optional) Open the mod's Config in r2modman to tune greed ramps, durations, or hold-time.
+
 ## Dependencies
 
 - [Hell2Modding](https://thunderstore.io/c/hades-ii/p/Hell2Modding/Hell2Modding/)
@@ -48,3 +55,7 @@ All values are configurable via r2modman's config editor:
 - [Chalk](https://thunderstore.io/c/hades-ii/p/SGG_Modding/Chalk/)
 - [ReLoad](https://thunderstore.io/c/hades-ii/p/SGG_Modding/ReLoad/)
 - [ENVY](https://thunderstore.io/c/hades-ii/p/LuaENVY/ENVY/)
+
+## Feedback
+
+Bug reports and feature requests are welcome at the [GitHub issues tracker](https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/issues).
