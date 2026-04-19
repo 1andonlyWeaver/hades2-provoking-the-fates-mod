@@ -977,6 +977,53 @@ function ProvokeMod.UnTransformDoor( door )
 	} )
 end
 
+-- Fix 4b stage 3: apply a provoked Fields cage's pre-rolled injection to
+-- GameState.ShrineUpgrades additively, merging into ActiveTransientVows so
+-- the existing RestoreVowsOnly path strips everything cleanly when the
+-- combat ends. Applied exactly once per cage — idempotent via FearApplied.
+function ProvokeMod.ApplyCageFear( cageData )
+	if cageData == nil or cageData.FearApplied then return end
+	local injection = cageData.Injection
+	if injection == nil then
+		cageData.FearApplied = true
+		return
+	end
+
+	ProvokeMod.RunState.ActiveTransientVows = ProvokeMod.RunState.ActiveTransientVows or {}
+
+	local appliedRanks = 0
+	for vowName, ranksToAdd in pairs( injection ) do
+		local baseline = GameState.ShrineUpgrades[vowName] or 0
+		local maxRank  = ProvokeMod.GetVowMaxRank( vowName )
+		local existing = ProvokeMod.RunState.ActiveTransientVows[vowName]
+		local already  = existing and existing.AddedRanks or 0
+		local room     = math.max( 0, maxRank - baseline - already )
+		local take     = math.min( ranksToAdd, room )
+		if take > 0 then
+			if existing then
+				existing.AddedRanks = already + take
+			else
+				ProvokeMod.RunState.ActiveTransientVows[vowName] = {
+					OriginalRank = baseline,
+					AddedRanks   = take,
+				}
+			end
+			GameState.ShrineUpgrades[vowName] = baseline + already + take
+			ShrineUpgradeExtractValues( vowName )
+			appliedRanks = appliedRanks + take
+		end
+	end
+
+	ProvokeMod.RunState.TransientFearActive = true
+	cageData.FearApplied = true
+
+	ProvokeMod.Log.info( "fields", "cage_fear_applied", {
+		choiceType   = cageData.ChoiceType,
+		fearCost     = cageData.FearCost,
+		appliedRanks = appliedRanks,
+	} )
+end
+
 -- Fix 4b stage 2: destroy a MetaCurrencyDrop in Mourning Fields and replace
 -- it in-place with a cage-gated Boon/Hammer reward. Mirrors the vanilla
 -- SpawnRewardCages sequence (RoomLogic.lua:5682-5709): copy ObstacleData,
@@ -1081,14 +1128,21 @@ function ProvokeMod.TransformFieldsPickup( pickup, choiceType )
 	-- 4. Destroy the original pickup now that the cage is anchored.
 	Destroy({ Id = pickupId })
 
-	-- 5. Bookkeeping: track the provocation and advance the greed counter so
+	-- 5. Pre-roll the fear injection now (so the over-capacity filter can see
+	-- the committed Fear cost and the StartFieldsEncounter wrap has a concrete
+	-- injection to apply when the player triggers the cage).
+	local injection = ProvokeMod.SelectThemedVows( fearCost )
+
+	-- 6. Bookkeeping: track the provocation and advance the greed counter so
 	-- subsequent provocations in this run cost the escalating amount.
 	ProvokeMod.RunState.ProvokedCages = ProvokeMod.RunState.ProvokedCages or {}
 	ProvokeMod.RunState.ProvokedCages[cage.ObjectId] = {
-		ChoiceType = choiceType,
-		FearCost   = fearCost,
-		RewardId   = reward.ObjectId,
-		Cage       = cage,
+		ChoiceType  = choiceType,
+		FearCost    = fearCost,
+		Injection   = injection,
+		RewardId    = reward.ObjectId,
+		Cage        = cage,
+		FearApplied = false,
 	}
 	ProvokeMod.RunState.ProvocationCount = (ProvokeMod.RunState.ProvocationCount or 0) + 1
 	ProvokeMod.RunState.ProvokedCounts[choiceType] =
@@ -1492,15 +1546,22 @@ function ProvokeMod.OpenProvocationScreen( door )
 		poolCapacity = poolCapacity + math.max( 0, maxRank - current )
 	end
 
-	-- Subtract Fear already reserved by active stacks. At door-interaction time,
-	-- GameState.ShrineUpgrades is back to baseline (RestoreVowsOnly ran at the
-	-- previous combat's end) and active stacks will re-apply in the upcoming
-	-- combat room on top of any new provocation. Without this subtraction the
-	-- filter would happily let a second provocation stack past pool capacity
-	-- and silently leak the overflow.
+	-- Subtract Fear already reserved by active stacks (from prior rooms) and
+	-- by provoked Fields cages that haven't fired yet (current room). At door-
+	-- interaction time, GameState.ShrineUpgrades is back to baseline
+	-- (RestoreVowsOnly ran at the previous combat's end) but those pending
+	-- Fear costs will re-apply in the upcoming combat rooms / cage encounters
+	-- on top of any new provocation. Without this subtraction the filter
+	-- would happily let a second provocation stack past pool capacity and
+	-- silently leak the overflow.
 	local activeFearTotal = 0
 	for _, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
 		activeFearTotal = activeFearTotal + (stack.FearCost or 0)
+	end
+	for _, cageData in pairs( ProvokeMod.RunState.ProvokedCages or {} ) do
+		if not cageData.FearApplied then
+			activeFearTotal = activeFearTotal + (cageData.FearCost or 0)
+		end
 	end
 	if activeFearTotal > 0 then
 		local rawCapacity = poolCapacity

@@ -96,6 +96,11 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- to be misidentified as previously-provoked MetaProgress doors.
 	ProvokeMod.RunState.ProvokedDoors = {}
 
+	-- Drop any abandoned Fields cage provocations too — if the player left
+	-- without triggering a provoked cage, its ObjectId is gone and the
+	-- FearCost shouldn't keep counting against the next room's capacity.
+	ProvokeMod.RunState.ProvokedCages = {}
+
 	-- Restore RewardStoreName before base pushes CurrentRoom into RoomHistory,
 	-- so CalcMetaProgressRatio counts this provoked room as MetaProgress in
 	-- all future ratio calculations.
@@ -168,7 +173,33 @@ modutil.mod.Path.Wrap( "HideUseButton", function( base, objectId, useTarget, fad
 end, mod )
 
 -- ============================================================================
--- Hook 9: Long-press gate on Fields pickups
+-- Hook 9: Apply provoked-cage Fear when the player triggers the combat
+-- ============================================================================
+-- StartFieldsEncounter (EncounterLogic.lua:2884) runs when the player uses a
+-- FieldsRewardCage. If the cage was produced by TransformFieldsPickup, its
+-- pre-rolled injection lives at RunState.ProvokedCages[cage.ObjectId]; apply
+-- it to ShrineUpgrades just before the base call so the spawning enemies see
+-- the boosted vow ranks. Restore is handled by OnEncounterEnd's existing
+-- RestoreVowsAndDecayStacks → RestoreVowsOnly pipeline.
+modutil.mod.Path.Wrap( "StartFieldsEncounter", function( base, rewardCage, args )
+	if rewardCage ~= nil and rewardCage.ObjectId ~= nil
+		and ProvokeMod.RunState.ProvokedCages ~= nil
+	then
+		local cageData = ProvokeMod.RunState.ProvokedCages[rewardCage.ObjectId]
+		if cageData ~= nil and not cageData.FearApplied then
+			ProvokeMod.Log.info( "fields", "applying cage fear on encounter start", {
+				cageId     = rewardCage.ObjectId,
+				choiceType = cageData.ChoiceType,
+				fearCost   = cageData.FearCost,
+			} )
+			ProvokeMod.ApplyCageFear( cageData )
+		end
+	end
+	return base( rewardCage, args )
+end, mod )
+
+-- ============================================================================
+-- Hook 10: Long-press gate on Fields pickups
 -- ============================================================================
 -- UseConsumableItem fires when the player interacts with a free-floating
 -- consumable (MetaCurrencyDrop = Ash/Bones/Psyche in Mourning Fields). For
