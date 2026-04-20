@@ -1,14 +1,14 @@
 # Provoking the Fates
 
-A Hades II mod that lets you upgrade minor reward doors into powerful Boons and Daedalus Hammers — at the cost of temporary Oath of the Unseen difficulty spikes.
+A Hades II mod that upgrades minor reward doors into Boons and Daedalus Hammers. The price is temporary Oath of the Unseen difficulty spikes.
 
 ## How It Works
 
-When approaching a door offering a minor reward (Bones, Ash, Nectar), a secondary prompt appears:
+When you approach a door offering a minor reward (Bones, Ash, Nectar), a secondary prompt appears:
 
-**[Cast] — Provoke the Fates**
+**Hold Interact to Provoke the Fates**
 
-Pressing it opens a 3-card selection menu:
+A short tap uses the door normally. Hold past half a second and a 3-card selection menu opens:
 
 | Option | Result | First-Pick Fear Cost |
 |--------|--------|----------------------|
@@ -16,36 +16,35 @@ Pressing it opens a 3-card selection menu:
 | Exalted Favor | Enhanced rarity Boon (Rare/Epic/Heroic/Duo) | +2 |
 | Artificer's Design | Daedalus Hammer (bypasses run limit) | +3 |
 
+The same prompt also appears on the Mourning Fields pickups (Bones, Ashes, Nectar) that stand in for doors in that biome.
+
 ## Transient Fear
 
-The cost you pay is **Transient Fear** — random Oath of the Unseen vows injected into the upcoming combat encounter. They vanish once the fear's duration (in combat encounters) runs out.
+The cost is **Transient Fear**: random Oath of the Unseen vows that stick around for the next few fights, then fade.
 
-- **Linear greed**: Fear cost = `multiplier × n`, where n is the 1-indexed slot of this provocation in the run. Hammer series: 3, 6, 9, 12…; Enhanced series: 2, 4, 6, 8…; Regular series: 1, 2, 3, 4…
-- **Capped pool**: If a provocation's cost would exceed the remaining vow-pool capacity, that option is hidden from the menu. When every option is over-capacity, a rejection dialog appears instead of charging Fear that cannot land.
+Each provocation costs more than the last. Regular Boons charge 1, 2, 3, 4… as you keep going; Enhanced Boons 2, 4, 6, 8…; Hammers 3, 6, 9, 12…
+
+If a provocation's cost won't fit what the vows can hold, that option is hidden from the menu. If nothing fits, the Fates turn you away.
 
 ## Configuration
 
 All values are configurable via r2modman's config editor:
 
-- `Cost_RegularBoon` — Optional flat Fear offset added on top of the Regular Boon greed ramp (default: 0)
-- `Cost_EnhancedBoon` — Optional flat Fear offset added on top of the Enhanced Boon greed ramp (default: 0)
-- `Cost_Hammer` — Optional flat Fear offset added on top of the Hammer greed ramp (default: 0)
-- `EnableGreed` — Toggle the per-provocation greed ramp (default: true)
-- `GreedMultiplier_RegularBoon` — Greed step added each slot when picking Regular Boon (default: 1)
-- `GreedMultiplier_EnhancedBoon` — Greed step added each slot when picking Enhanced Boon (default: 2)
-- `GreedMultiplier_Hammer` — Greed step added each slot when picking Daedalus Hammer (default: 3)
-- `GreedExtendsDuration` — Each provocation after the first lasts 1 extra encounter per prior provocation (default: true)
-- `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer` — Base Fear-stack duration per choice type, in combat encounters (defaults: 1 / 2 / 3)
-- `ThemedSplitThreshold` — At or below this Fear cost a provocation concentrates on a single vow; above it the ranks split across two (default: 6)
-- `ProvokeHoldSeconds` — Hold-duration on Interact to open the provocation menu (default: 0.5)
-- `LogLevel` — Playtest log verbosity: TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)
+- `Cost_RegularBoon` / `Cost_EnhancedBoon` / `Cost_Hammer`: extra Fear tacked on top of every provocation of that type (defaults: 0 / 0 / 0)
+- `EnableGreed`: when on, each provocation costs more than the last. Turn off to charge only the flat Cost above (default: true)
+- `GreedMultiplier_RegularBoon` / `GreedMultiplier_EnhancedBoon` / `GreedMultiplier_Hammer`: how much more each provocation of that type costs than the previous one (defaults: 1 / 2 / 3)
+- `GreedExtendsDuration`: when on, later provocations stick around longer — each one after the first adds an extra encounter (default: true)
+- `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer`: how many combat encounters each type's Fear hangs around (defaults: 1 / 2 / 3)
+- `ThemedSplitThreshold`: at or below this Fear cost, all ranks go onto one vow; above it they split across two (default: 6)
+- `ProvokeHoldSeconds`: how long to hold Interact before the provocation menu opens (default: 0.5)
+- `LogLevel`: log verbosity — TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)
 
 ## Installation
 
 1. Install [r2modman](https://thunderstore.io/package/ebkr/r2modmanPlus/) and select **Hades II** from the game list.
-2. Search for **ProvokingTheFates** in the Online tab and install — r2modman pulls the dependencies automatically.
+2. Search for **ProvokingTheFates** in the Online tab and install. r2modman pulls the dependencies automatically.
 3. Launch Hades II through r2modman.
-4. (Optional) Open the mod's Config in r2modman to tune greed ramps, durations, or hold-time.
+4. (Optional) Open the mod's Config in r2modman to tune costs, durations, or hold-time.
 
 ## Dependencies
 
@@ -58,4 +57,4 @@ All values are configurable via r2modman's config editor:
 
 ## Feedback
 
-Bug reports and feature requests are welcome at the [GitHub issues tracker](https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/issues).
+Bug reports and feature requests go on the [GitHub issues tracker](https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/issues).
