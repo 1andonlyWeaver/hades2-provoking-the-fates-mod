@@ -53,6 +53,12 @@ return {
   -- values risk accidental triggers when the player mashes Interact.
   ProvokeHoldSeconds = 0.5;
 
+  -- When true (default), you'll need to cast the "Provoke the Fates"
+  -- incantation at Hecate's cauldron before the provoke prompt appears on
+  -- doors. Flip to false to skip the ritual and have the mechanic active
+  -- from the first run.
+  RequireIncantation = true;
+
   -- Playtest logging verbosity: TRACE | DEBUG | INFO | WARN | ERROR.
   -- INFO is the quiet default for normal play. Raise to DEBUG/TRACE to watch
   -- door proximity, hold-gate outcomes, and per-stack decay in detail.

@@ -11,6 +11,22 @@
 
 ProvokeMod = ProvokeMod or {}
 
+-- Incantation unlock gate. The provocation mechanic stays locked until the
+-- player casts the "Provoke the Fates" incantation at Hecate's cauldron
+-- (registered via RegisterIncantation at the bottom of this file). Until
+-- then doors behave exactly like vanilla. Flip config.RequireIncantation =
+-- false in r2modman to bypass the ritual.
+ProvokeMod.IncantationId = "Weaver_ProvokeTheFates"
+
+function ProvokeMod.IsUnlocked()
+	if config and config.RequireIncantation == false then
+		return true
+	end
+	return GameState ~= nil
+		and GameState.WorldUpgradesAdded ~= nil
+		and GameState.WorldUpgradesAdded[ProvokeMod.IncantationId] == true
+end
+
 -- Vows eligible for Transient Fear injection.
 -- Only direct combat vows: enemy stat modifiers and spawn mechanics.
 -- Excluded vows have no meaningful effect during a single combat room:
@@ -184,6 +200,9 @@ end
 -- Check if a door is provokable: either it's currently a MetaProgress door,
 -- or it was originally MetaProgress before being transformed by a provocation.
 function ProvokeMod.IsProvokableDoor( door )
+	if not ProvokeMod.IsUnlocked() then
+		return false
+	end
 	if ProvokeMod.IsMetaProgressDoor( door ) then
 		return true
 	end
@@ -213,6 +232,7 @@ ProvokeMod.ProvokableFieldsPickupNames = {
 }
 
 function ProvokeMod.IsProvokableFieldsPickup( useTarget )
+	if not ProvokeMod.IsUnlocked() then return false end
 	if useTarget == nil or useTarget.Name == nil then return false end
 	local room = CurrentRun and CurrentRun.CurrentRoom
 	if room == nil or room.RoomSetName ~= "H" then return false end
@@ -381,6 +401,9 @@ end
 -- UsePrompt text appears at ~Y=1010 (ScreenHeight - BottomOffset(−10) - textOffset(80)).
 -- We position ours ~30px below that, so together they read as two stacked options.
 function ProvokeMod.SpawnProvokeHint()
+	if not ProvokeMod.IsUnlocked() then
+		return
+	end
 	if ProvokeMod.RunState.ProvokeHintId ~= nil then
 		ProvokeMod.Log.trace( "door", "hint_spawn skipped: already visible" )
 		return
@@ -2096,4 +2119,42 @@ function ProvokeMod.GetVowListText( activeVows )
 	end
 	table.sort( entries )
 	return entries
+end
+
+-- ============================================================================
+-- Section 8: Cauldron incantation registration (BlueRaja-IncantationsAPI)
+-- ============================================================================
+-- The library exposes a global `Incantations.addIncantation` once it's loaded.
+-- Registration guard protects against hot-reload: ProvokeMod persists across
+-- reloads via the `ProvokeMod = ProvokeMod or {}` pattern, so the flag sticks.
+function ProvokeMod.RegisterIncantation()
+	if Incantations == nil or Incantations.addIncantation == nil then
+		ProvokeMod.Log.warn( "incantation", "IncantationsAPI not found; mechanic will stay locked unless config.RequireIncantation is false" )
+		return
+	end
+	Incantations.addIncantation({
+		Id          = ProvokeMod.IncantationId,
+		Name        = "Provoke the Fates",
+		Description = "Petition the Moirai to bend your threadwork. Minor rewards can be woven into greater ones, at the price of transient Fear.",
+		Icon        = "GUI\\Screens\\CriticalItemShop\\Icons\\cauldron_fatescroll",
+		Cost        = { OreIMarble = 3, PlantIShaderot = 2 },
+		GameStateRequirements = {
+			{ Path = { "GameState", "SpentShrinePointsCache" }, Comparison = ">=", Value = 1 },
+		},
+		IncantationVoiceLines = {
+			{
+				PreLineWait = 0.3,
+				{ Cue = "/VO/Melinoe_1072", Text = "{#Emph}As the Three Fates would have it, so shall I...!" },
+			},
+		},
+		OnEnabled = function( source )
+			ProvokeMod.Log.info( "incantation", "enabled", { source = source } )
+		end,
+	})
+	ProvokeMod.Log.info( "incantation", "registered", { id = ProvokeMod.IncantationId } )
+end
+
+if not ProvokeMod._IncantationRegistered then
+	ProvokeMod.RegisterIncantation()
+	ProvokeMod._IncantationRegistered = true
 end

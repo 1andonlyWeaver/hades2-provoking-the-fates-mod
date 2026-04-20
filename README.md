@@ -2,6 +2,17 @@
 
 A Hades II mod that upgrades minor reward doors into Boons and Daedalus Hammers. The price is temporary Oath of the Unseen difficulty spikes.
 
+## Unlocking the Mechanic
+
+The provocation mechanic doesn't kick in the moment you install the mod. To enable it:
+
+1. Spend at least one Shrine Point at the Oath of the Unseen.
+2. Visit Hecate's cauldron in the Crossroads and cast **Provoke the Fates** (costs 3 Marble + 2 Shaderot).
+
+Until you do, doors behave exactly like vanilla.
+
+Prefer to skip the ritual? Set `RequireIncantation = false` in r2modman's config editor and the mechanic activates from the first run.
+
 ## How It Works
 
 When you approach a door offering a minor reward (Bones, Ash, Nectar), a secondary prompt appears:
@@ -37,6 +48,7 @@ All values are configurable via r2modman's config editor:
 - `Duration_RegularBoon` / `Duration_EnhancedBoon` / `Duration_Hammer`: how many combat encounters each type's Fear hangs around (defaults: 1 / 2 / 3)
 - `ThemedSplitThreshold`: at or below this Fear cost, all ranks go onto one vow; above it they split across two (default: 6)
 - `ProvokeHoldSeconds`: how long to hold Interact before the provocation menu opens (default: 0.5)
+- `RequireIncantation`: when off, skip the cauldron unlock and activate the provocation mechanic from the first run (default: true)
 - `LogLevel`: log verbosity — TRACE / DEBUG / INFO / WARN / ERROR (default: INFO)
 
 ## Installation
@@ -54,6 +66,7 @@ All values are configurable via r2modman's config editor:
 - [Chalk](https://thunderstore.io/c/hades-ii/p/SGG_Modding/Chalk/)
 - [ReLoad](https://thunderstore.io/c/hades-ii/p/SGG_Modding/ReLoad/)
 - [ENVY](https://thunderstore.io/c/hades-ii/p/LuaENVY/ENVY/)
+- [IncantationsAPI](https://thunderstore.io/c/hades-ii/p/BlueRaja/IncantationsAPI/)
 
 ## Feedback
 
