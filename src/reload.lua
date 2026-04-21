@@ -78,8 +78,11 @@ ProvokeMod.ChoiceTypes = {
 		GreedDefault    = 1,
 		DurationKey     = "Duration_RegularBoon",
 		DurationDefault = 1,
+		WeightKey       = "Weight_RegularBoon",
+		WeightDefault   = 1,
 
 		SupportsCage    = true,
+		IsEligible      = function( run, room ) return true end,
 
 		Transform = function( room, door )
 			room.ChosenRewardType = "Boon"
@@ -111,8 +114,11 @@ ProvokeMod.ChoiceTypes = {
 		GreedDefault    = 2,
 		DurationKey     = "Duration_EnhancedBoon",
 		DurationDefault = 2,
+		WeightKey       = "Weight_EnhancedBoon",
+		WeightDefault   = 1,
 
 		SupportsCage    = true,
+		IsEligible      = function( run, room ) return true end,
 
 		Transform = function( room, door )
 			room.ChosenRewardType = "Boon"
@@ -150,8 +156,11 @@ ProvokeMod.ChoiceTypes = {
 		GreedDefault    = 3,
 		DurationKey     = "Duration_Hammer",
 		DurationDefault = 3,
+		WeightKey       = "Weight_Hammer",
+		WeightDefault   = 1,
 
 		SupportsCage    = true,
+		IsEligible      = function( run, room ) return true end,
 
 		Transform = function( room, door )
 			room.ChosenRewardType = "WeaponUpgrade"
@@ -1430,6 +1439,67 @@ game.ProvokeMod__OnFatesSatisfiedDismiss = function( screen, button )
 	OnScreenCloseFinished( screen )
 end
 
+-- Collect every registered ChoiceType that could legally appear on this
+-- provoke: skip cage-incompatible types when provoking a Fields pickup, skip
+-- anything whose Fear cost exceeds the remaining pool, and skip anything
+-- whose IsEligible gate fails (e.g. Selene locked, no upgradable boon for
+-- Pom). Returns a list of { key, choiceType, entry, cost, weight } records.
+function ProvokeMod.BuildChoicePool( run, room, isPickup, poolCapacity, nextPosition )
+	local pool    = {}
+	local skipped = {}
+	for key, entry in pairs( ProvokeMod.ChoiceTypes ) do
+		local cost   = ProvokeMod.GetFearCost( key, nextPosition )
+		local reason = nil
+		if isPickup and not entry.SupportsCage then
+			reason = "no_cage_support"
+		elseif cost > poolCapacity then
+			reason = "over_capacity"
+		elseif entry.IsEligible and not entry.IsEligible( run, room ) then
+			reason = "ineligible"
+		end
+		if reason == nil then
+			local weight = config[entry.WeightKey] or entry.WeightDefault or 1
+			table.insert( pool, {
+				key        = key,
+				choiceType = key,
+				entry      = entry,
+				cost       = cost,
+				weight     = weight,
+			})
+		else
+			skipped[key] = reason
+		end
+	end
+	if next( skipped ) ~= nil then
+		ProvokeMod.Log.debug( "provoke", "pool_skipped_entries", skipped )
+	end
+	return pool
+end
+
+-- Weighted random sample without replacement, via Efraimidis–Spirakis:
+-- each item gets a key = random^(1 / weight), and the top-n items by key
+-- are the unbiased weighted sample. Zero / negative weights are dropped.
+-- When n >= #pool, all surviving items are returned in randomized order
+-- (so menu layout is shuffled across reopens even when the pool is full).
+function ProvokeMod.SampleChoices( pool, n )
+	if pool == nil or #pool == 0 or n <= 0 then return {} end
+	local keyed = {}
+	for _, item in ipairs( pool ) do
+		local w = item.weight or 1
+		if w > 0 then
+			local u = RandomFloat( 0.0, 1.0 )
+			if u <= 0 then u = 1e-9 end
+			local key = u ^ (1.0 / w)
+			table.insert( keyed, { item = item, key = key } )
+		end
+	end
+	table.sort( keyed, function( a, b ) return a.key > b.key end )
+	local out = {}
+	local k = math.min( n, #keyed )
+	for i = 1, k do out[i] = keyed[i].item end
+	return out
+end
+
 -- Build one choice row. Matches vanilla boon-pickup structure: a BoonSlotBase
 -- button with rarity-tier backing, a Highlight overlay layered on top so it
 -- reads as an edge-glow rather than an occluded backdrop, an Icon on the
@@ -1644,33 +1714,56 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local totalCount = ProvokeMod.RunState.ProvocationCount or 0
 	local nextPosition = isReprovoke and math.max( 1, totalCount ) or (totalCount + 1)
 
-	-- Early affordability gate: if this is a fresh provoke and none of the
-	-- three options fit inside the remaining pool, short-circuit straight to
-	-- the Fates-Satisfied rejection BEFORE spawning any provocation-screen
-	-- scaffolding. Otherwise the dim + title + flavor components would get
-	-- created, the rejection screen would open on top, and dismissing the
-	-- rejection would leave orphan backdrop components with no interaction
-	-- target — stranding the player on an empty "menu".
-	if not isReprovoke then
-		local minCost = math.min(
-			ProvokeMod.GetFearCost( "RegularBoon",  nextPosition ),
-			ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition ),
-			ProvokeMod.GetFearCost( "Hammer",       nextPosition )
-		)
-		if minCost > poolCapacity then
-			ProvokeMod.Log.info( "provoke", "blocked: no choice fits pool", {
-				objectId     = door.ObjectId,
-				poolCapacity = poolCapacity,
-				minCost      = minCost,
-			} )
-			ProvokeMod.OpenFatesSatisfiedScreen()
-			return
-		end
+	-- Build the filtered pool of eligible choices — per-type cost, cage
+	-- compatibility, and IsEligible predicates all apply here. The pool is
+	-- then sampled (weighted, no replacement) to populate the menu rows.
+	local pool = ProvokeMod.BuildChoicePool(
+		CurrentRun, door.Room, isFieldsPickup, poolCapacity, nextPosition
+	)
+
+	-- Early gate: if a fresh provoke produced no viable choices, short-circuit
+	-- to the Fates-Satisfied rejection BEFORE spawning any screen scaffolding.
+	-- Re-provoke always renders (so the player can Revert / Keep Choice even
+	-- when nothing else fits).
+	if #pool == 0 and not isReprovoke then
+		ProvokeMod.Log.info( "provoke", "blocked: no choice fits pool", {
+			objectId     = door.ObjectId,
+			poolCapacity = poolCapacity,
+		} )
+		ProvokeMod.OpenFatesSatisfiedScreen()
+		return
 	end
 
-	local regularCost  = ProvokeMod.GetFearCost( "RegularBoon",  nextPosition )
-	local enhancedCost = ProvokeMod.GetFearCost( "EnhancedBoon", nextPosition )
-	local hammerCost   = ProvokeMod.GetFearCost( "Hammer",       nextPosition )
+	-- Sample up to 3 rows from the pool, weighted without replacement.
+	-- Reopening the screen builds fresh pool + sample, so every reopen rerolls.
+	local sampleSize = 3
+	local sampled    = ProvokeMod.SampleChoices( pool, sampleSize )
+
+	-- On re-provoke, guarantee the current choice stays in the sample so
+	-- Revert / Keep Choice has a reliable home even if sampling displaced it.
+	-- Inject it at position 1 (displacing the first sampled entry) when
+	-- missing. When the sample already contains it, leave position as-is so
+	-- the CURRENT badge can appear wherever sampling placed it.
+	if isReprovoke and currentChoiceType ~= nil then
+		local present = false
+		for _, item in ipairs( sampled ) do
+			if item.choiceType == currentChoiceType then present = true; break end
+		end
+		if not present then
+			local entry = ProvokeMod.ChoiceTypes[currentChoiceType]
+			if entry ~= nil then
+				local pinned = {
+					key        = currentChoiceType,
+					choiceType = currentChoiceType,
+					entry      = entry,
+					cost       = ProvokeMod.GetFearCost( currentChoiceType, nextPosition ),
+					weight     = config[entry.WeightKey] or entry.WeightDefault or 1,
+				}
+				if #sampled > 0 then table.remove( sampled, 1 ) end
+				table.insert( sampled, 1, pinned )
+			end
+		end
+	end
 
 	-- Clone the vanilla boon-pickup screen definition and keep every backdrop
 	-- component vanilla uses (OlympusBackground, ShopBackgroundDim, Shop-
@@ -1693,13 +1786,12 @@ function ProvokeMod.OpenProvocationScreen( door )
 	screen.ComponentData.ActionBarLeft = nil
 	screen.ComponentData.ActionBar     = nil
 
-	-- Resolve the vow injection each button will commit to, so the preview
-	-- text shown matches what actually lands.
-	screen.PreviewedInjections = {
-		RegularBoon  = ProvokeMod.SelectThemedVows( regularCost ),
-		EnhancedBoon = ProvokeMod.SelectThemedVows( enhancedCost ),
-		Hammer       = ProvokeMod.SelectThemedVows( hammerCost ),
-	}
+	-- Resolve the vow injection each sampled button will commit to, so the
+	-- preview text shown matches what actually lands. Keyed by choiceType.
+	screen.PreviewedInjections = {}
+	for _, item in ipairs( sampled ) do
+		screen.PreviewedInjections[item.choiceType] = ProvokeMod.SelectThemedVows( item.cost )
+	end
 
 	OnScreenOpened( screen )
 	CreateScreenFromData( screen, screen.ComponentData )
@@ -1737,14 +1829,17 @@ function ProvokeMod.OpenProvocationScreen( door )
 			or  "Upgrade this reward. The Fates will retaliate.",
 	})
 
+	local sampledKeys = {}
+	for _, item in ipairs( sampled ) do
+		table.insert( sampledKeys, item.key .. "=" .. tostring( item.cost ) )
+	end
 	ProvokeMod.Log.info( "provoke", "open screen", {
-		objectId         = door.ObjectId,
-		isReprovoke      = isReprovoke,
-		currentChoice    = currentChoiceType or "none",
-		regularCost      = regularCost,
-		enhancedCost     = enhancedCost,
-		hammerCost       = hammerCost,
-		poolCapacity     = poolCapacity,
+		objectId      = door.ObjectId,
+		isReprovoke   = isReprovoke,
+		currentChoice = currentChoiceType or "none",
+		poolSize      = #pool,
+		sampled       = table.concat( sampledKeys, "," ),
+		poolCapacity  = poolCapacity,
 	} )
 
 	local function buildPreviewLine( injection )
@@ -1762,7 +1857,8 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return table.concat( parts, ",  " )
 	end
 
-	-- Three BoonSlotBase rows at vanilla positions. Rarity rises with cost.
+	-- Up to 3 BoonSlotBase rows at vanilla positions. Entries come from the
+	-- sampler; title / rarity / icon all source from the registry.
 	screen.KeepOpen = true
 	screen.UpgradeButtons = {}
 
@@ -1772,42 +1868,22 @@ function ProvokeMod.OpenProvocationScreen( door )
 	-- the extension is (nextPosition - 1) — identical to what the stack will
 	-- actually queue with if the player commits to that option.
 	local greedExtension = config.GreedExtendsDuration and math.max( 0, nextPosition - 1 ) or 0
-	local regularDuration  = (config.Duration_RegularBoon  or 1) + greedExtension
-	local enhancedDuration = (config.Duration_EnhancedBoon or 2) + greedExtension
-	local hammerDuration   = (config.Duration_Hammer       or 3) + greedExtension
 
-	-- Icons: BlindBoxLoot is vanilla's wrapped-boon animation (defined in
-	-- Items_General_VFX.sjson, backed by Items\Loot\WrappedBoon — the gift-
-	-- wrapped mystery-boon present). For Enhanced Boon, layer
-	-- BoonUpgradedPreviewSparkles on top via IconOverlayAnim — the same
-	-- sparkle overlay vanilla composes with its BoonDrop*UpgradedPreview
-	-- animations.
-	local choiceConfigs = {
-		{ key = "RegularBoon",  choiceType = "RegularBoon",  title = "Boon",            cost = regularCost,  duration = regularDuration,  rarity = "Rare",      iconAnim = "BlindBoxLoot"                                        },
-		{ key = "EnhancedBoon", choiceType = "EnhancedBoon", title = "Enhanced Boon",   cost = enhancedCost, duration = enhancedDuration, rarity = "Epic",      iconAnim = "BlindBoxLoot", iconOverlayAnim = "BoonUpgradedPreviewSparkles" },
-		{ key = "Hammer",       choiceType = "Hammer",       title = "Daedalus Hammer", cost = hammerCost,   duration = hammerDuration,   rarity = "Legendary", iconAnim = "WeaponUpgradePreview"                                },
-	}
-
-	-- Hide options whose Fear cost exceeds the pool capacity — those would
-	-- silently leak Fear on commit. The "all options filtered on a fresh
-	-- provoke" case is already handled by the early gate above; this block
-	-- only prunes partially-affordable menus and re-provoke screens (where
-	-- Revert / Keep Choice still need to render even with zero viable
-	-- choices).
+	-- Build the per-row config list from the sampled pool entries.
 	local visibleConfigs = {}
-	local hiddenKeys = {}
-	for _, c in ipairs( choiceConfigs ) do
-		if c.cost <= poolCapacity then
-			table.insert( visibleConfigs, c )
-		else
-			table.insert( hiddenKeys, c.key )
-		end
-	end
-	if #hiddenKeys > 0 then
-		ProvokeMod.Log.info( "provoke", "hid over-capacity choices", {
-			poolCapacity = poolCapacity,
-			hidden       = table.concat( hiddenKeys, "," ),
-		} )
+	for _, item in ipairs( sampled ) do
+		local entry    = item.entry
+		local duration = (config[entry.DurationKey] or entry.DurationDefault or 1) + greedExtension
+		table.insert( visibleConfigs, {
+			key             = item.key,
+			choiceType      = item.choiceType,
+			title           = entry.Title,
+			cost            = item.cost,
+			duration        = duration,
+			rarity          = entry.Rarity,
+			iconAnim        = entry.IconAnim,
+			iconOverlayAnim = entry.IconOverlayAnim,
+		})
 	end
 
 	for i, choice in ipairs( visibleConfigs ) do

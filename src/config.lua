@@ -40,6 +40,15 @@ return {
   Duration_EnhancedBoon = 2;
   Duration_Hammer       = 3;
 
+  -- Per-type random-sample weighting. Each time the provocation menu opens,
+  -- 3 options are drawn (without replacement) from the registered reward
+  -- types, weighted by these numbers. All default to 1 — every option is
+  -- equally likely. Raise one to make that type appear more often; set to
+  -- 0 to exclude it entirely from the roll.
+  Weight_RegularBoon  = 1;
+  Weight_EnhancedBoon = 1;
+  Weight_Hammer       = 1;
+
   -- When true, each provocation past the first extends its own stack's
   -- duration by 1 encounter per prior provocation (of any type). The 1st
   -- ever provocation lasts its base duration; the 2nd lasts base+1; the 3rd
