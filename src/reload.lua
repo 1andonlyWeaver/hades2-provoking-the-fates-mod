@@ -43,6 +43,128 @@ ProvokeMod.EligibleVows = {
 	"EnemyEliteShrineUpgrade",
 }
 
+-- ----------------------------------------------------------------------------
+-- ChoiceTypes registry. Every per-choice-type branch in the mod reads from
+-- here: cost / greed / duration config keys, UI styling, and the door / cage
+-- transform functions. Adding a new reward type is "add an entry; touch
+-- nothing else".
+--
+--   Transform( room, door )          mutates room + door to produce the
+--                                    upgraded reward (ChosenRewardType,
+--                                    RewardStoreName, ForceLootName, rarity
+--                                    overrides).
+--   TransformCage( currentRoom )     parallel for Fields cages: may mutate
+--                                    currentRoom.BoonRaritiesOverride and
+--                                    returns { RewardOverride, LootName } for
+--                                    SpawnRoomReward to consume. nil for
+--                                    cage-incompatible types (SupportsCage =
+--                                    false).
+--   Rarity                           keys into the vanilla
+--                                    ScreenData.UpgradeChoice.
+--                                    RarityBackingAnimations table that
+--                                    buildChoiceRow uses to draw the slot.
+-- ----------------------------------------------------------------------------
+ProvokeMod.ChoiceTypes = {
+	RegularBoon = {
+		Title           = "Boon",
+		UIColor         = { 1.0, 1.0,  1.0, 1.0 },
+		Rarity          = "Rare",
+		IconAnim        = "BlindBoxLoot",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_RegularBoon",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_RegularBoon",
+		GreedDefault    = 1,
+		DurationKey     = "Duration_RegularBoon",
+		DurationDefault = 1,
+
+		SupportsCage    = true,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "Boon"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+			local lootData = ChooseLoot()
+			if lootData then room.ForceLootName = lootData.Name end
+		end,
+
+		TransformCage = function( currentRoom )
+			local lootData = ChooseLoot()
+			return {
+				RewardOverride = "Boon",
+				LootName       = lootData and lootData.Name or nil,
+			}
+		end,
+	},
+
+	EnhancedBoon = {
+		Title           = "Enhanced Boon",
+		UIColor         = { 1.0, 0.85, 0.45, 1.0 },
+		Rarity          = "Epic",
+		IconAnim        = "BlindBoxLoot",
+		IconOverlayAnim = "BoonUpgradedPreviewSparkles",
+
+		CostKey         = "Cost_EnhancedBoon",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_EnhancedBoon",
+		GreedDefault    = 2,
+		DurationKey     = "Duration_EnhancedBoon",
+		DurationDefault = 2,
+
+		SupportsCage    = true,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "Boon"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+			local lootData = ChooseLoot()
+			if lootData then room.ForceLootName = lootData.Name end
+			room.BoonRaritiesOverride = {
+				Rare = 0.40, Epic = 0.35, Heroic = 0.20, Legendary = 0.05,
+			}
+		end,
+
+		TransformCage = function( currentRoom )
+			currentRoom.BoonRaritiesOverride = {
+				Rare = 0.40, Epic = 0.35, Heroic = 0.20, Legendary = 0.05,
+			}
+			local lootData = ChooseLoot()
+			return {
+				RewardOverride = "Boon",
+				LootName       = lootData and lootData.Name or nil,
+			}
+		end,
+	},
+
+	Hammer = {
+		Title           = "Daedalus Hammer",
+		UIColor         = { 1.0, 0.47, 0.20, 1.0 },
+		Rarity          = "Legendary",
+		IconAnim        = "WeaponUpgradePreview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_Hammer",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_Hammer",
+		GreedDefault    = 3,
+		DurationKey     = "Duration_Hammer",
+		DurationDefault = 3,
+
+		SupportsCage    = true,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "WeaponUpgrade"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = function( currentRoom )
+			return { RewardOverride = "WeaponUpgrade", LootName = nil }
+		end,
+	},
+}
+
 
 -- ----------------------------------------------------------------------------
 -- Playtest logger. Leveled + categorized. Output is routed through Lua's
@@ -78,9 +200,13 @@ function ProvokeMod.Log.warn ( cat, msg, kvs ) logEmit( "WARN",  cat, msg, kvs )
 function ProvokeMod.Log.error( cat, msg, kvs ) logEmit( "ERROR", cat, msg, kvs ) end
 
 function ProvokeMod.ResetRunState()
+	local counts = {}
+	if ProvokeMod.ChoiceTypes then
+		for key, _ in pairs( ProvokeMod.ChoiceTypes ) do counts[key] = 0 end
+	end
 	ProvokeMod.RunState = {
 		ProvocationCount = 0,
-		ProvokedCounts = { RegularBoon = 0, EnhancedBoon = 0, Hammer = 0 },
+		ProvokedCounts = counts,
 		ActiveFearStacks = {},          -- list of provocations still decaying across rooms
 		ActiveTransientVows = {},       -- merged injection currently applied to ShrineUpgrades
 		TransientFearActive = false,
@@ -110,10 +236,9 @@ end
 -- via their .cfg; `or` fallbacks preserve behaviour when a key is missing
 -- (e.g. a player upgrading over an older .cfg lacking these keys).
 function ProvokeMod.GetGreedMultiplier( choiceType )
-	if choiceType == "RegularBoon"  then return config.GreedMultiplier_RegularBoon  or 1 end
-	if choiceType == "EnhancedBoon" then return config.GreedMultiplier_EnhancedBoon or 2 end
-	if choiceType == "Hammer"       then return config.GreedMultiplier_Hammer       or 3 end
-	return 1
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
+	if entry == nil then return 1 end
+	return config[entry.GreedKey] or entry.GreedDefault or 1
 end
 
 -- Fear cost for a provocation. `effectiveCount` is the 1-indexed position this
@@ -127,13 +252,10 @@ end
 -- gentler, Hammer steeper — via config.GreedMultiplier_<ChoiceType>.
 -- math.ceil keeps fractional multipliers from rounding greed down to 0.
 function ProvokeMod.GetFearCost( choiceType, effectiveCount )
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
 	local baseCost = 0
-	if choiceType == "RegularBoon" then
-		baseCost = config.Cost_RegularBoon or 0
-	elseif choiceType == "EnhancedBoon" then
-		baseCost = config.Cost_EnhancedBoon or 0
-	elseif choiceType == "Hammer" then
-		baseCost = config.Cost_Hammer or 0
+	if entry ~= nil then
+		baseCost = config[entry.CostKey] or entry.CostDefault or 0
 	end
 	if effectiveCount == nil then
 		local totalCount = (ProvokeMod.RunState and ProvokeMod.RunState.ProvocationCount) or 0
@@ -580,12 +702,9 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 		return
 	end
 	local baseDuration = 1
-	if choiceType == "RegularBoon" then
-		baseDuration = config.Duration_RegularBoon or 1
-	elseif choiceType == "EnhancedBoon" then
-		baseDuration = config.Duration_EnhancedBoon or 2
-	elseif choiceType == "Hammer" then
-		baseDuration = config.Duration_Hammer or 3
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
+	if entry ~= nil then
+		baseDuration = config[entry.DurationKey] or entry.DurationDefault or 1
 	end
 
 	local extension = 0
@@ -815,37 +934,13 @@ function ProvokeMod.TransformDoor( door, choiceType, previewedInjection )
 	room.ForceLootName = nil
 	room.RewardOverrides = nil
 
-	if choiceType == "RegularBoon" then
-		room.ChosenRewardType = "Boon"
-		room.RewardStoreName = "RunProgress"
-		door.RewardStoreName = "RunProgress"
-		-- Pick a random god for the boon
-		local lootData = ChooseLoot()
-		if lootData then
-			room.ForceLootName = lootData.Name
-		end
-
-	elseif choiceType == "EnhancedBoon" then
-		room.ChosenRewardType = "Boon"
-		room.RewardStoreName = "RunProgress"
-		door.RewardStoreName = "RunProgress"
-		-- Pick a random god
-		local lootData = ChooseLoot()
-		if lootData then
-			room.ForceLootName = lootData.Name
-		end
-		-- Boost rarity chances
-		room.BoonRaritiesOverride = {
-			Rare = 0.40,
-			Epic = 0.35,
-			Heroic = 0.20,
-			Legendary = 0.05,
-		}
-
-	elseif choiceType == "Hammer" then
-		room.ChosenRewardType = "WeaponUpgrade"
-		room.RewardStoreName = "RunProgress"
-		door.RewardStoreName = "RunProgress"
+	-- Per-type mutations (ChosenRewardType, RewardStoreName, ForceLootName,
+	-- optional BoonRaritiesOverride) are owned by the registry entry.
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
+	if entry and entry.Transform then
+		entry.Transform( room, door )
+	else
+		ProvokeMod.Log.error( "provoke", "TransformDoor: unknown choiceType", { choiceType = choiceType } )
 	end
 
 	-- Mark the room object so DoUnlockRoomExits and LeaveRoom can restore
@@ -1065,20 +1160,14 @@ function ProvokeMod.TransformFieldsPickup( pickup, choiceType )
 	currentRoom.ForceLootName   = nil
 	currentRoom.RewardOverrides = nil
 
-	local rewardOverride = "Boon"
-	local lootName = nil
-	if choiceType == "Hammer" then
-		rewardOverride = "WeaponUpgrade"
-	elseif choiceType == "EnhancedBoon" then
-		currentRoom.BoonRaritiesOverride = {
-			Rare = 0.40, Epic = 0.35, Heroic = 0.20, Legendary = 0.05,
-		}
-		local lootData = ChooseLoot()
-		if lootData then lootName = lootData.Name end
-	else -- RegularBoon
-		local lootData = ChooseLoot()
-		if lootData then lootName = lootData.Name end
-	end
+	-- Per-type cage spec (RewardOverride, LootName, optional BoonRaritiesOverride
+	-- side effect) is owned by the registry entry. Cage-incompatible types never
+	-- reach here because the sampler filters them out; the fallback is defensive.
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
+	local spec = (entry and entry.TransformCage and entry.TransformCage( currentRoom ))
+		or { RewardOverride = "Boon", LootName = nil }
+	local rewardOverride = spec.RewardOverride
+	local lootName       = spec.LootName
 
 	local reward = SpawnRoomReward( currentRoom, {
 		RewardOverride   = rewardOverride,
@@ -1238,24 +1327,14 @@ ProvokeMod.UI = {
 	CurrentAmber   = { 1.0,  0.88, 0.55, 1.0 }, -- "CURRENT" badge on re-provoke
 	GreyText       = { 0.7,  0.7,  0.7,  0.9 }, -- dismissive secondary button
 	DustyRose      = { 0.85, 0.65, 0.65, 0.9 }, -- "Revert to Original" button
-	ChoiceColor    = {
-		RegularBoon  = { 1.0, 1.0,  1.0,  1.0 },
-		EnhancedBoon = { 1.0, 0.85, 0.45, 1.0 },
-		Hammer       = { 1.0, 0.47, 0.20, 1.0 },
-	},
 	-- Mythmaker-prompt title styling: heavy black outline + deep-black shadow.
 	-- Matches ElementalPromptScreenData.lua:44-49.
 	MythmakerTitleShadow  = { 0.05, 0.04, 0.04, 1.0 },
 	MythmakerTitleOutline = { 0.11, 0.10, 0.09, 1.0 },
-	-- Rarity-tier backing animations for the BoonSlotBase rows — same pipeline
-	-- UpgradeChoiceData.lua:27-32 uses for boon pickup. The tier we assign per
-	-- choice climbs with the cost: Regular -> Rare, Enhanced -> Epic, Hammer ->
-	-- Legendary, so the visual weight of each scroll matches what it charges.
-	RarityAnim = {
-		RegularBoon  = "BoonSlotRare",
-		EnhancedBoon = "BoonSlotEpic",
-		Hammer       = "BoonSlotLegendary",
-	},
+	-- Per-choice-type colors (title accent) live in ProvokeMod.ChoiceTypes[*].UIColor
+	-- so the registry is the single source of truth. Rarity-tier backing
+	-- animations (BoonSlotRare / BoonSlotEpic / BoonSlotLegendary) are keyed
+	-- off each entry's Rarity field via screen.RarityBackingAnimations.
 }
 
 -- Shown in place of the choice menu when every eligible vow is already at its
@@ -1738,7 +1817,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 			IsFieldsPickup  = isFieldsPickup,
 			ChoiceType      = choice.choiceType,
 			Title           = choice.title,
-			TitleColor      = ProvokeMod.UI.ChoiceColor[choice.choiceType],
+			TitleColor      = ProvokeMod.ChoiceTypes[choice.choiceType].UIColor,
 			Cost            = choice.cost,
 			Duration        = choice.duration,
 			Preview         = buildPreviewLine( screen.PreviewedInjections[choice.choiceType] ),
