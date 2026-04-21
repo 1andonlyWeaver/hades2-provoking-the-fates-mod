@@ -323,20 +323,23 @@ ProvokeMod.ChoiceTypes = {
 		WeightDefault   = 1,
 
 		SupportsCage    = false,
-		-- Vanilla SpellDropRequirements (RequirementsData.lua:1328): Selene
-		-- must be met (SeleneFirstPickUp + ArtemisFirstMeeting text lines)
-		-- and the run must not already have a SpellDrop queued or used.
+		-- Vanilla SpellDropRequirements (RequirementsData.lua:1328) has a
+		-- whole chain of checks. We only mirror the UNLOCK portion — the
+		-- persistent GameState.TextLinesRecord.SeleneFirstPickUp flag,
+		-- which is set the first time the player interacts with a Selene
+		-- SpellDrop (LootData_Selene.lua:321) and stays set across runs.
+		-- Without it the save has no Selene content and a forced SpellDrop
+		-- would materialise with an empty spell pool.
+		--
+		-- We intentionally DO NOT mirror vanilla's pacing gates
+		-- (`CurrentRun.UseRecord.SpellDrop`, `CurrentRun.PendingSpellDrop`,
+		-- `ArtemisFirstMeeting`). Those exist to ration Selene to one
+		-- drop per run during the normal reward flow; our mod charges Fear
+		-- to bypass that pacing, so letting the player pay for a second
+		-- or third Hex is exactly the point.
 		IsEligible = function( run, room )
 			local tlr = GameState and GameState.TextLinesRecord
-			if tlr == nil then return false end
-			if not tlr.ArtemisFirstMeeting or not tlr.SeleneFirstPickUp then
-				return false
-			end
-			if run ~= nil then
-				if run.UseRecord and run.UseRecord.SpellDrop then return false end
-				if run.PendingSpellDrop then return false end
-			end
-			return true
+			return tlr ~= nil and tlr.SeleneFirstPickUp == true
 		end,
 
 		Transform = function( room, door )
@@ -1657,7 +1660,7 @@ function ProvokeMod.BuildChoicePool( run, room, isPickup, poolCapacity, nextPosi
 		end
 	end
 	if next( skipped ) ~= nil then
-		ProvokeMod.Log.debug( "provoke", "pool_skipped_entries", skipped )
+		ProvokeMod.Log.info( "provoke", "pool_skipped_entries", skipped )
 	end
 	return pool
 end
