@@ -2124,27 +2124,43 @@ end
 -- ============================================================================
 -- Section 8: Cauldron incantation registration (BlueRaja-IncantationsAPI)
 -- ============================================================================
--- The library exposes a global `Incantations.addIncantation` once it's loaded.
+-- ENVY isolates each plugin's globals, so we can't reach IncantationsAPI's
+-- `Incantations` directly — have to pull it out of Hell2Modding's cross-plugin
+-- registry at `rom.mods`. The `mods` local in main.lua doesn't propagate here;
+-- each file that wants cross-mod access reads `rom.mods` itself.
 -- Registration guard protects against hot-reload: ProvokeMod persists across
 -- reloads via the `ProvokeMod = ProvokeMod or {}` pattern, so the flag sticks.
 function ProvokeMod.RegisterIncantation()
+	local modsRegistry = rom and rom.mods
+	local Incantations = modsRegistry and modsRegistry['BlueRaja-IncantationsAPI']
 	if Incantations == nil or Incantations.addIncantation == nil then
 		ProvokeMod.Log.warn( "incantation", "IncantationsAPI not found; mechanic will stay locked unless config.RequireIncantation is false" )
-		return
+		return false
 	end
 	Incantations.addIncantation({
 		Id          = ProvokeMod.IncantationId,
 		Name        = "Provoke the Fates",
 		Description = "Petition the Moirai to bend your threadwork. Minor rewards can be woven into greater ones, at the price of transient Fear.",
-		Icon        = "GUI\\Screens\\CriticalItemShop\\Icons\\cauldron_fatescroll",
-		Cost        = { OreIMarble = 3, PlantIShaderot = 2 },
-		GameStateRequirements = {
-			{ Path = { "GameState", "SpentShrinePointsCache" }, Comparison = ">=", Value = 1 },
-		},
-		IncantationVoiceLines = {
-			{
-				PreLineWait = 0.3,
-				{ Cue = "/VO/Melinoe_1072", Text = "{#Emph}As the Three Fates would have it, so shall I...!" },
+		FlavorText  = "Dare you pluck a thread before its time?",
+		WorldUpgradeData = {
+			Icon = "GUI\\Screens\\CriticalItemShop\\Icons\\cauldron_fatescroll",
+			-- Critical category caps reveals at 3 per run (GhostAdminData.lua:171);
+			-- with many mods adding incantations, ours would otherwise get crowded
+			-- out indefinitely. AlwaysRevealImmediately bypasses that cap so the
+			-- tile appears the moment GameStateRequirements are satisfied.
+			AlwaysRevealImmediately = true,
+			Cost = { OreIMarble = 3, PlantIShaderot = 2 },
+			GameStateRequirements = {
+				-- Matches the canonical vanilla signal for "Oath of the Unseen is
+				-- unlocked" — the Oath-reroll incantation WorldUpgradeChangeNextRunRNG
+				-- (WorldUpgradeData.lua:1421) reads the same path.
+				{ Path = { "GameState", "EnemyKills", "Chronos" }, Comparison = ">=", Value = 1 },
+			},
+			IncantationVoiceLines = {
+				{
+					PreLineWait = 0.3,
+					{ Cue = "/VO/Melinoe_1072", Text = "{#Emph}As the Three Fates would have it, so shall I...!" },
+				},
 			},
 		},
 		OnEnabled = function( source )
@@ -2152,9 +2168,11 @@ function ProvokeMod.RegisterIncantation()
 		end,
 	})
 	ProvokeMod.Log.info( "incantation", "registered", { id = ProvokeMod.IncantationId } )
+	return true
 end
 
 if not ProvokeMod._IncantationRegistered then
-	ProvokeMod.RegisterIncantation()
-	ProvokeMod._IncantationRegistered = true
+	if ProvokeMod.RegisterIncantation() then
+		ProvokeMod._IncantationRegistered = true
+	end
 end

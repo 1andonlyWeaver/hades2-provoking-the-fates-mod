@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Gated behind a new Cauldron incantation, **Provoke the Fates**, unlocked after the player has spent at least one Shrine Point at the Oath of the Unseen. Skippable via the `RequireIncantation` config option.
+- Gated behind a new Cauldron incantation, **Provoke the Fates**, unlocked after the player has defeated Chronos (matching when the Oath of the Unseen itself becomes available in vanilla). Skippable via the `RequireIncantation` config option.
 - Hold-Interact on any minor meta-reward door (Bones/Ash/Nectar) opens a 3-option provocation menu: upgrade to a standard Boon, an Enhanced (Rare+) Boon, or a Daedalus Hammer that bypasses the per-run limit.
 - Same provoke flow works on Mourning Fields reward cages (Bones, Ashes, Nectar) — committing a choice auto-starts the cage combat.
 - Transient Fear system injects random Oath of the Unseen vow ranks into upcoming combat encounters, decaying over a configurable duration.

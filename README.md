@@ -6,7 +6,7 @@ A Hades II mod that upgrades minor reward doors into Boons and Daedalus Hammers.
 
 The provocation mechanic doesn't kick in the moment you install the mod. To enable it:
 
-1. Spend at least one Shrine Point at the Oath of the Unseen.
+1. Defeat Chronos at least once. This unlocks the Oath of the Unseen in vanilla and makes the incantation visible in the Cauldron.
 2. Visit Hecate's cauldron in the Crossroads and cast **Provoke the Fates** (costs 3 Marble + 2 Shaderot).
 
 Until you do, doors behave exactly like vanilla.
