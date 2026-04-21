@@ -303,7 +303,12 @@ ProvokeMod.ChoiceTypes = {
 	},
 
 	SeleneBoon = {
-		Title           = "Hex",
+		-- Title CANNOT be the literal "Hex": HelpText.en.sjson:8631 defines
+		-- that exact string as the Elite Perk Hex (the Polymorph / "Morpher"
+		-- perk rolled on Vow-of-Fangs elites), so CreateTextBox substitutes
+		-- it with "{!Icons.PerkHex} Morpher" + the sheep icon. Any title
+		-- we pick has to dodge the HelpText ID namespace.
+		Title           = "Selene's Hex",
 		UIColor         = { 0.70, 0.55, 1.0, 1.0 },
 		Rarity          = "Epic",
 		IconAnim        = "SpellDropPreview",
