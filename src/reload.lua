@@ -75,7 +75,7 @@ ProvokeMod.ChoiceTypes = {
 		CostKey         = "Cost_RegularBoon",
 		CostDefault     = 0,
 		GreedKey        = "GreedMultiplier_RegularBoon",
-		GreedDefault    = 1,
+		GreedDefault    = 2,
 		DurationKey     = "Duration_RegularBoon",
 		DurationDefault = 1,
 		WeightKey       = "Weight_RegularBoon",
@@ -111,7 +111,7 @@ ProvokeMod.ChoiceTypes = {
 		CostKey         = "Cost_EnhancedBoon",
 		CostDefault     = 0,
 		GreedKey        = "GreedMultiplier_EnhancedBoon",
-		GreedDefault    = 2,
+		GreedDefault    = 3,
 		DurationKey     = "Duration_EnhancedBoon",
 		DurationDefault = 2,
 		WeightKey       = "Weight_EnhancedBoon",
@@ -171,6 +171,177 @@ ProvokeMod.ChoiceTypes = {
 		TransformCage = function( currentRoom )
 			return { RewardOverride = "WeaponUpgrade", LootName = nil }
 		end,
+	},
+
+	-- ------------------------------------------------------------------
+	-- Minor resource rewards (Tier 1: mult 1, duration 1). These set
+	-- ChosenRewardType directly to the reward-store Name — mirroring how
+	-- HubRewards / RunProgress already expose them in vanilla — and rely
+	-- on vanilla's CreateDoorRewardPreview fallback to pull the DoorIcon
+	-- from ConsumableData.
+	-- ------------------------------------------------------------------
+	Gold = {
+		Title           = "Gold",
+		UIColor         = { 1.0, 0.85, 0.40, 1.0 },
+		Rarity          = "Rare",
+		IconAnim        = "RoomMoneyBigDropPreview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_Gold",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_Gold",
+		GreedDefault    = 1,
+		DurationKey     = "Duration_Gold",
+		DurationDefault = 1,
+		WeightKey       = "Weight_Gold",
+		WeightDefault   = 1,
+
+		SupportsCage    = false,
+		IsEligible      = function( run, room ) return true end,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "RoomMoneyBigDrop"   -- 200 drachmas
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = nil,
+	},
+
+	CentaurHeart = {
+		Title           = "Centaur Heart",
+		UIColor         = { 0.95, 0.55, 0.55, 1.0 },
+		Rarity          = "Rare",
+		IconAnim        = "MaxHealthDropBigPreview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_CentaurHeart",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_CentaurHeart",
+		GreedDefault    = 1,
+		DurationKey     = "Duration_CentaurHeart",
+		DurationDefault = 1,
+		WeightKey       = "Weight_CentaurHeart",
+		WeightDefault   = 1,
+
+		SupportsCage    = false,
+		IsEligible      = function( run, room ) return true end,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "MaxHealthDropBig"   -- +50 MaxHealth
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = nil,
+	},
+
+	Magick = {
+		Title           = "Magick",
+		UIColor         = { 0.55, 0.60, 1.0, 1.0 },
+		Rarity          = "Rare",
+		IconAnim        = "MaxManaDropBig_Preview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_Magick",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_Magick",
+		GreedDefault    = 1,
+		DurationKey     = "Duration_Magick",
+		DurationDefault = 1,
+		WeightKey       = "Weight_Magick",
+		WeightDefault   = 1,
+
+		SupportsCage    = false,
+		IsEligible      = function( run, room ) return true end,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "MaxManaDropBig"     -- +60 MaxMana
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = nil,
+	},
+
+	-- ------------------------------------------------------------------
+	-- Power picks (Tier 2: mult 2, duration 2). LootData-backed reward
+	-- types that behave like boons on pickup (selection menus, vow gates).
+	-- ------------------------------------------------------------------
+	Pom = {
+		Title           = "Pomegranate",
+		UIColor         = { 1.0, 0.55, 0.40, 1.0 },
+		Rarity          = "Epic",
+		IconAnim        = "StackUpgradePreview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_Pom",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_Pom",
+		GreedDefault    = 2,
+		DurationKey     = "Duration_Pom",
+		DurationDefault = 2,
+		WeightKey       = "Weight_Pom",
+		WeightDefault   = 1,
+
+		SupportsCage    = false,
+		-- Vanilla StackUpgradeLegal: CurrentRun.Hero.UpgradableTraitCount >= 1
+		-- (RequirementsData.lua:1295). Pom materializing without an
+		-- upgradable boon opens an empty selection menu, so keep the gate.
+		IsEligible = function( run, room )
+			return run ~= nil and run.Hero ~= nil
+				and (run.Hero.UpgradableTraitCount or 0) >= 1
+		end,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "StackUpgrade"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = nil,
+	},
+
+	SeleneBoon = {
+		Title           = "Hex",
+		UIColor         = { 0.70, 0.55, 1.0, 1.0 },
+		Rarity          = "Epic",
+		IconAnim        = "SpellDropPreview",
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_SeleneBoon",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_SeleneBoon",
+		GreedDefault    = 2,
+		DurationKey     = "Duration_SeleneBoon",
+		DurationDefault = 2,
+		WeightKey       = "Weight_SeleneBoon",
+		WeightDefault   = 1,
+
+		SupportsCage    = false,
+		-- Vanilla SpellDropRequirements (RequirementsData.lua:1328): Selene
+		-- must be met (SeleneFirstPickUp + ArtemisFirstMeeting text lines)
+		-- and the run must not already have a SpellDrop queued or used.
+		IsEligible = function( run, room )
+			local tlr = GameState and GameState.TextLinesRecord
+			if tlr == nil then return false end
+			if not tlr.ArtemisFirstMeeting or not tlr.SeleneFirstPickUp then
+				return false
+			end
+			if run ~= nil then
+				if run.UseRecord and run.UseRecord.SpellDrop then return false end
+				if run.PendingSpellDrop then return false end
+			end
+			return true
+		end,
+
+		Transform = function( room, door )
+			room.ChosenRewardType = "SpellDrop"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = nil,
 	},
 }
 
@@ -1243,10 +1414,20 @@ function ProvokeMod.TransformFieldsPickup( pickup, choiceType )
 	return cage
 end
 
--- Compute the animation name for a door's new reward icon from LootData.
+-- Compute the animation name for a door's new reward icon. Mirrors the
+-- fallback chain in vanilla CreateDoorRewardPreview (RewardPresentation.lua):
+--   * Boon + ForceLootName   → LootData[loot].DoorUpgradedIcon (when rarity-
+--                              boosted) or DoorIcon / Icon
+--   * ChosenRewardType key   → LootData[type].DoorIcon   (WeaponUpgrade,
+--                              StackUpgrade, SpellDrop, ...)
+--   * or ConsumableData[type].DoorIcon                    (RoomMoneyBigDrop,
+--                              MaxHealthDropBig, MaxManaDropBig, ...)
+-- Returns nil when nothing matches, which forces RefreshDoorPreview onto the
+-- destroy-and-recreate path (CreateDoorRewardPreview) as a safety net.
 function ProvokeMod.GetDoorIconAnimName( door )
 	local room = door.Room
-	if room.ChosenRewardType == "Boon" and room.ForceLootName then
+	local rewardType = room.ChosenRewardType
+	if rewardType == "Boon" and room.ForceLootName then
 		local lootData = LootData[room.ForceLootName]
 		if lootData then
 			if room.BoonRaritiesOverride and lootData.DoorUpgradedIcon then
@@ -1254,11 +1435,12 @@ function ProvokeMod.GetDoorIconAnimName( door )
 			end
 			return lootData.DoorIcon or lootData.Icon
 		end
-	elseif room.ChosenRewardType == "WeaponUpgrade" then
-		local lootData = LootData["WeaponUpgrade"]
-		if lootData then
-			return lootData.DoorIcon or lootData.Icon
-		end
+	end
+	if rewardType then
+		local lootData = LootData[rewardType]
+		if lootData then return lootData.DoorIcon or lootData.Icon end
+		local consumableData = ConsumableData and ConsumableData[rewardType]
+		if consumableData then return consumableData.DoorIcon or consumableData.Icon end
 	end
 	return nil
 end
