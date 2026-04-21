@@ -66,9 +66,9 @@ ProvokeMod.EligibleVows = {
 -- ----------------------------------------------------------------------------
 ProvokeMod.ChoiceTypes = {
 	RegularBoon = {
-		Title           = "Boon",
-		UIColor         = { 1.0, 1.0,  1.0, 1.0 },
-		Rarity          = "Rare",
+		Title           = "Boon of Olympus",
+		UIColor         = { 0.80, 0.65, 1.00, 1.0 },   -- Tier 2 violet
+		Rarity          = "Epic",                      -- Tier 2 backing
 		IconAnim        = "BlindBoxLoot",
 		IconOverlayAnim = nil,
 
@@ -102,9 +102,9 @@ ProvokeMod.ChoiceTypes = {
 	},
 
 	EnhancedBoon = {
-		Title           = "Enhanced Boon",
-		UIColor         = { 1.0, 0.85, 0.45, 1.0 },
-		Rarity          = "Epic",
+		Title           = "Enhanced Boon of Olympus",
+		UIColor         = { 1.00, 0.55, 0.25, 1.0 },   -- Tier 3 warm orange
+		Rarity          = "Legendary",                 -- Tier 3 backing
 		IconAnim        = "BlindBoxLoot",
 		IconOverlayAnim = "BoonUpgradedPreviewSparkles",
 
@@ -145,7 +145,7 @@ ProvokeMod.ChoiceTypes = {
 
 	Hammer = {
 		Title           = "Daedalus Hammer",
-		UIColor         = { 1.0, 0.47, 0.20, 1.0 },
+		UIColor         = { 1.00, 0.55, 0.25, 1.0 },   -- Tier 3 warm orange
 		Rarity          = "Legendary",
 		IconAnim        = "WeaponUpgradePreview",
 		IconOverlayAnim = nil,
@@ -181,8 +181,8 @@ ProvokeMod.ChoiceTypes = {
 	-- from ConsumableData.
 	-- ------------------------------------------------------------------
 	Gold = {
-		Title           = "Gold",
-		UIColor         = { 1.0, 0.85, 0.40, 1.0 },
+		Title           = "Large Bounty",
+		UIColor         = { 0.55, 0.82, 1.00, 1.0 },   -- Tier 1 cool blue
 		Rarity          = "Rare",
 		IconAnim        = "RoomMoneyBigDropPreview",
 		IconOverlayAnim = nil,
@@ -210,7 +210,7 @@ ProvokeMod.ChoiceTypes = {
 
 	CentaurHeart = {
 		Title           = "Centaur Heart",
-		UIColor         = { 0.95, 0.55, 0.55, 1.0 },
+		UIColor         = { 0.55, 0.82, 1.00, 1.0 },   -- Tier 1 cool blue
 		Rarity          = "Rare",
 		IconAnim        = "MaxHealthDropBigPreview",
 		IconOverlayAnim = nil,
@@ -237,8 +237,8 @@ ProvokeMod.ChoiceTypes = {
 	},
 
 	Magick = {
-		Title           = "Magick",
-		UIColor         = { 0.55, 0.60, 1.0, 1.0 },
+		Title           = "Soul Tonic",
+		UIColor         = { 0.55, 0.82, 1.00, 1.0 },   -- Tier 1 cool blue
 		Rarity          = "Rare",
 		IconAnim        = "MaxManaDropBig_Preview",
 		IconOverlayAnim = nil,
@@ -269,8 +269,8 @@ ProvokeMod.ChoiceTypes = {
 	-- types that behave like boons on pickup (selection menus, vow gates).
 	-- ------------------------------------------------------------------
 	Pom = {
-		Title           = "Pomegranate",
-		UIColor         = { 1.0, 0.55, 0.40, 1.0 },
+		Title           = "Pom of Power",
+		UIColor         = { 0.80, 0.65, 1.00, 1.0 },   -- Tier 2 violet
 		Rarity          = "Epic",
 		IconAnim        = "StackUpgradePreview",
 		IconOverlayAnim = nil,
@@ -303,13 +303,12 @@ ProvokeMod.ChoiceTypes = {
 	},
 
 	SeleneBoon = {
-		-- Title CANNOT be the literal "Hex": HelpText.en.sjson:8631 defines
-		-- that exact string as the Elite Perk Hex (the Polymorph / "Morpher"
-		-- perk rolled on Vow-of-Fangs elites), so CreateTextBox substitutes
-		-- it with "{!Icons.PerkHex} Morpher" + the sheep icon. Any title
-		-- we pick has to dodge the HelpText ID namespace.
-		Title           = "Selene's Hex",
-		UIColor         = { 0.70, 0.55, 1.0, 1.0 },
+		-- "Gift of the Moon" is the canonical vanilla display name for a
+		-- SpellDrop door reward (TraitText.en.sjson:8129, "SpellDrop_Store").
+		-- Avoid the literal "Hex" — that collides with the Elite-Perk Hex
+		-- HelpText ID and renders as "{!Icons.PerkHex} Morpher" + sheep.
+		Title           = "Gift of the Moon",
+		UIColor         = { 0.80, 0.65, 1.00, 1.0 },   -- Tier 2 violet
 		Rarity          = "Epic",
 		IconAnim        = "SpellDropPreview",
 		IconOverlayAnim = nil,
