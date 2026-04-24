@@ -2,11 +2,6 @@ Reference/
 .claude/
 CLAUDE.md
 
-# Symlink files for local testing via r2modman
-/src/LICENSE
-/src/icon.png
-/src/manifest.json
-
 # Package source files (e.g. .pkg built by deppth2)
 /packages
 

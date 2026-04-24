@@ -50,6 +50,12 @@ jobs:
         run: |
           sed -i 's/versionNumber = ".*"/versionNumber = "${{ inputs.tag }}"/g' ${{ env.thunderstore-config }}
 
+      - name: Rotate version in plugin manifest
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          sed -i "s/\"version_number\": \".*\"/\"version_number\": \"${TAG}\"/" src/manifest.json
+
       - name: Replace relative image paths with absolute paths in README
         run: |
           sed -i 's#(\(\./\)\?${{ inputs.image-folder-name }}/#(https://github.com/${{ github.event.repository.owner.login }}/${{ github.event.repository.name }}/raw/${{ github.event.repository.default_branch }}/${{ inputs.image-folder-name }}/#g' README.md
@@ -82,7 +88,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ${{ env.changelog }} ${{ env.thunderstore-config }}
+          git add ${{ env.changelog }} ${{ env.thunderstore-config }} src/manifest.json
           git commit --message "Release ${{ inputs.tag }}"
           git tag ${{ inputs.tag }} --annotate --message "Release ${{ inputs.tag }}"
           git push origin HEAD:${{ github.ref_name }} --tags
