@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-24
+
 ### Added
 
 - Hold-Interact on minor reward doors (Bones / Ash / Nectar) to open a **Provoke the Fates** menu offering richer rewards — Boon, Enhanced Boon, Daedalus Hammer, Selene Hex, Boon of Hermes, Pomegranate, Gold, Centaur Heart, or Magick — at the cost of temporary Oath of the Unseen Fear.
@@ -20,3 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HUD** — encounter-start "The Fates have been provoked" banner with a per-vow effect summary, plus a persistent top-right cluster showing active vows and remaining encounter count.
 - **Per-type config knobs** for all nine reward types: `Cost_<Type>`, `GreedMultiplier_<Type>`, `Duration_<Type>`, `Weight_<Type>` (`RegularBoon`, `EnhancedBoon`, `Hammer`, `Gold`, `CentaurHeart`, `Magick`, `Pom`, `SeleneBoon`, `HermesBoon`). Set `Weight_<Type> = 0` to exclude a type from the menu entirely.
 - **Global config knobs**: `EnableGreed`, `GreedExtendsDuration`, `ThemedSplitThreshold`, `ProvokeHoldSeconds`, `RequireIncantation`, `LogLevel` (TRACE / DEBUG / INFO / WARN / ERROR).
+
+[unreleased]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/987b54d0b458a535e4d59bbe13a88fb59f19ab77...1.0.0
