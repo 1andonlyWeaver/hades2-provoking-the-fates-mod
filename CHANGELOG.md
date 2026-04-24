@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Five new reward types in the provocation menu: **Gold** (200 drachmas), **Centaur Heart** (+50 Max Health), **Magick** (+60 Max Magick), **Pomegranate** (level up an existing boon), and **Hex** (Selene Night Boon). Pomegranate hides when you have no upgradeable boons; Hex hides until Selene is unlocked — matching the vanilla gates.
+- New tier-2 reward type in the provocation menu: **Boon of Hermes** (greed ×2, 2-encounter Fear duration). Gated behind the vanilla `HermesFirstPickUp` unlock — the option appears once you've picked up a Hermes boon at least once in a prior run, matching how the Selene Hex option is gated on `SeleneFirstPickUp`. Per-type `Cost_HermesBoon`, `GreedMultiplier_HermesBoon`, `Duration_HermesBoon`, and `Weight_HermesBoon` knobs added.
 - Menu now draws **three random options** from the pool of eight each time it opens, weighted by per-type `Weight_<Type>` config knobs. Closing and reopening the menu rerolls the selection.
 - Per-type cost, greed, duration, and weight knobs for the new types (`Cost_Gold`, `GreedMultiplier_CentaurHeart`, `Duration_Magick`, `Weight_Pom`, `Cost_SeleneBoon`, and so on).
 

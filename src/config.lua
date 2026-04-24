@@ -14,15 +14,16 @@ return {
   Cost_Magick       = 0;
   Cost_Pom          = 0;
   Cost_SeleneBoon   = 0;
+  Cost_HermesBoon   = 0;
 
   -- Per-choice-type linear greed. Fear cost = Cost_<Type> + ceil(n * multiplier),
   -- where n is the 1-indexed position of this provocation in the run (every
   -- provocation shares one counter, so mixing types still advances n). With
   -- Cost_* = 0 the cost is simply multiplier × n. The tiered defaults group
   -- rewards into three power bands:
-  --   Tier 1 (mult 1)  Gold, CentaurHeart, Magick          1, 2, 3, 4, ...
-  --   Tier 2 (mult 2)  Pom, RegularBoon, SeleneBoon        2, 4, 6, 8, ...
-  --   Tier 3 (mult 3)  EnhancedBoon, Hammer                3, 6, 9, 12, ...
+  --   Tier 1 (mult 1)  Gold, CentaurHeart, Magick                  1, 2, 3, 4, ...
+  --   Tier 2 (mult 2)  Pom, RegularBoon, SeleneBoon, HermesBoon    2, 4, 6, 8, ...
+  --   Tier 3 (mult 3)  EnhancedBoon, Hammer                        3, 6, 9, 12, ...
   -- Lower a multiplier to flatten that type's ramp; raise it to bite harder
   -- sooner. EnableGreed = false short-circuits greed to 0 for every type
   -- (only the flat Cost_<Type> offset is charged).
@@ -35,6 +36,7 @@ return {
   GreedMultiplier_Magick       = 1;
   GreedMultiplier_Pom          = 2;
   GreedMultiplier_SeleneBoon   = 2;
+  GreedMultiplier_HermesBoon   = 2;
 
   -- Fear point threshold for "themed" vow selection. At or below this cost,
   -- a provocation concentrates all ranks on a single randomly chosen vow. Above
@@ -46,7 +48,7 @@ return {
   -- active before it decays off entirely. Non-combat encounters (shops,
   -- Devotion trials, NPC beats) don't consume a duration tick — the Fear
   -- pauses until the next fight.
-  Duration_RegularBoon  = 1;
+  Duration_RegularBoon  = 2;
   Duration_EnhancedBoon = 2;
   Duration_Hammer       = 3;
   Duration_Gold         = 1;
@@ -54,6 +56,7 @@ return {
   Duration_Magick       = 1;
   Duration_Pom          = 2;
   Duration_SeleneBoon   = 2;
+  Duration_HermesBoon   = 2;
 
   -- Per-type random-sample weighting. Each time the provocation menu opens,
   -- 3 options are drawn (without replacement) from the registered reward
@@ -68,6 +71,7 @@ return {
   Weight_Magick       = 1;
   Weight_Pom          = 1;
   Weight_SeleneBoon   = 1;
+  Weight_HermesBoon   = 1;
 
   -- When true, each provocation past the first extends its own stack's
   -- duration by 1 encounter per prior provocation (of any type). The 1st

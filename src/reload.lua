@@ -77,7 +77,7 @@ ProvokeMod.ChoiceTypes = {
 		GreedKey        = "GreedMultiplier_RegularBoon",
 		GreedDefault    = 2,
 		DurationKey     = "Duration_RegularBoon",
-		DurationDefault = 1,
+		DurationDefault = 2,
 		WeightKey       = "Weight_RegularBoon",
 		WeightDefault   = 1,
 
@@ -369,6 +369,50 @@ ProvokeMod.ChoiceTypes = {
 		end,
 
 		TransformCage = nil,
+	},
+
+	HermesBoon = {
+		Title           = "Boon of Hermes",
+		UIColor         = { 0.80, 0.65, 1.00, 1.0 },   -- Tier 2 violet
+		Rarity          = "Epic",                      -- Tier 2 backing
+		IconAnim        = "BoonDropHermesPreview",     -- Vanilla Hermes door preview (LootData_Hermes.lua:16)
+		IconOverlayAnim = nil,
+
+		CostKey         = "Cost_HermesBoon",
+		CostDefault     = 0,
+		GreedKey        = "GreedMultiplier_HermesBoon",
+		GreedDefault    = 2,
+		DurationKey     = "Duration_HermesBoon",
+		DurationDefault = 2,
+		WeightKey       = "Weight_HermesBoon",
+		WeightDefault   = 1,
+
+		SupportsCage    = true,
+		-- Mirror vanilla's HermesUpgradeRequirements (RequirementsData.lua:1304)
+		-- unlock portion: HermesFirstPickUp must be set in TextLinesRecord. We
+		-- skip the run-level pacing gates (LootTypeHistory.HermesUpgrade <= 1,
+		-- BiomeUseRecord) on purpose — provocation is paid opt-in, stacking
+		-- Hermes is the feature.
+		IsEligible = function( run, room )
+			local tlr = GameState and GameState.TextLinesRecord
+			return tlr ~= nil and tlr.HermesFirstPickUp == true
+		end,
+
+		Transform = function( room, door )
+			-- ChosenRewardType "HermesUpgrade" routes through RewardLogic.lua:362-367,
+			-- which supplies ForceLootName = "HermesUpgrade" internally — no need
+			-- to call ChooseLoot like RegularBoon does.
+			room.ChosenRewardType = "HermesUpgrade"
+			room.RewardStoreName  = "RunProgress"
+			door.RewardStoreName  = "RunProgress"
+		end,
+
+		TransformCage = function( currentRoom )
+			return {
+				RewardOverride = "HermesUpgrade",
+				LootName       = "HermesUpgrade",
+			}
+		end,
 	},
 }
 
