@@ -96,6 +96,11 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- to be misidentified as previously-provoked MetaProgress doors.
 	ProvokeMod.RunState.ProvokedDoors = {}
 
+	-- Drop the sampled-choice cache too. Same ObjectId-reuse risk: a door in
+	-- the next room with a colliding id would inherit last room's 3 cards.
+	-- Wiping per room means every fresh provoke door gets its own first roll.
+	ProvokeMod.RunState.PendingRolls = {}
+
 	-- Drop any abandoned Fields cage provocations too — if the player left
 	-- without triggering a provoked cage, its ObjectId is gone and the
 	-- FearCost shouldn't keep counting against the next room's capacity.

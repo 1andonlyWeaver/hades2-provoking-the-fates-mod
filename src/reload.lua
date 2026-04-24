@@ -343,7 +343,27 @@ ProvokeMod.ChoiceTypes = {
 		end,
 
 		Transform = function( room, door )
-			room.ChosenRewardType = "SpellDrop"
+			-- If the player already has a slotted hex, spawn a TalentDrop (the
+			-- vanilla moon-and-stars upgrade consumable from Selene's
+			-- Crossroads shop, ConsumableData.lua:684). Vanilla's SpawnRoomReward
+			-- (RewardLogic.lua:400-401) spawns the obstacle using ChosenRewardType
+			-- as the obstacle Name and resolves the consumable via
+			-- ConsumableData[...], so setting "TalentDrop" here gives us:
+			--   - the correct in-room visual (moon + stars, not moon drop),
+			--   - the correct door preview icon (GetDoorIconAnimName already
+			--     falls back to ConsumableData, src/reload.lua:1503),
+			--   - native dispatch to OpenTalentScreen at pickup
+			--     (UseFunctionName = "OpenTalentScreen", ConsumableData.lua:702),
+			--   - +2 spendable talent points (AddTalentPoints = 3,
+			--     ConsumableData.lua:704) minus vanilla's "1 point is spent
+			--     picking this up" decrement in OpenTalentScreen:5-8.
+			-- If the player has no slotted hex, fall through to SpellDrop for
+			-- the new-hex 3-pick screen.
+			if ProvokeMod.PlayerHasSlottedSeleneHex() then
+				room.ChosenRewardType = "TalentDrop"
+			else
+				room.ChosenRewardType = "SpellDrop"
+			end
 			room.RewardStoreName  = "RunProgress"
 			door.RewardStoreName  = "RunProgress"
 		end,
@@ -351,6 +371,21 @@ ProvokeMod.ChoiceTypes = {
 		TransformCage = nil,
 	},
 }
+
+
+-- ----------------------------------------------------------------------------
+-- Selene-specific helpers supporting SeleneBoon.Transform's new-vs-upgrade
+-- dispatch. Vanilla sets CurrentRun.Hero.SlottedSpell when the player picks any
+-- Selene hex (SpellScreenLogic.lua:95/361, TalentScreenLogic.lua:59/66) and
+-- clears it on weapon change (WeaponUpgradeLogic.lua:397) and patch migrations
+-- (PatchLogic.lua:939). A non-nil SlottedSpell is the single authoritative
+-- indicator of "player has a hex to upgrade."
+-- ----------------------------------------------------------------------------
+function ProvokeMod.PlayerHasSlottedSeleneHex()
+	return CurrentRun ~= nil
+		and CurrentRun.Hero ~= nil
+		and CurrentRun.Hero.SlottedSpell ~= nil
+end
 
 
 -- ----------------------------------------------------------------------------
@@ -400,6 +435,7 @@ function ProvokeMod.ResetRunState()
 		FearHUDIconIds = nil,           -- HUD cluster showing active vows this room
 		ProvokedDoors = {},
 		ProvokedCages = {},          -- cageObjectId → { ChoiceType, FearCost, RewardId, Cage }
+		PendingRolls = {},           -- doorObjectId → cached [3] sample so back-out/reopen doesn't reroll
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,
@@ -1924,9 +1960,21 @@ function ProvokeMod.OpenProvocationScreen( door )
 	end
 
 	-- Sample up to 3 rows from the pool, weighted without replacement.
-	-- Reopening the screen builds fresh pool + sample, so every reopen rerolls.
+	-- First open writes to PendingRolls[ObjectId]; subsequent opens (back-out/
+	-- reopen, reprovoke, even post-revert within the same room) reuse the
+	-- cached sample so the player can't farm a better roll by cancelling.
+	-- PendingRolls is wiped on LeaveRoom and ResetRunState (see ready.lua,
+	-- ResetRunState). Fields pickups key by the same ObjectId path so they
+	-- benefit from the same anti-reroll guarantee.
 	local sampleSize = 3
-	local sampled    = ProvokeMod.SampleChoices( pool, sampleSize )
+	local sampled = ProvokeMod.RunState.PendingRolls
+		and ProvokeMod.RunState.PendingRolls[door.ObjectId]
+		or nil
+	if sampled == nil then
+		sampled = ProvokeMod.SampleChoices( pool, sampleSize )
+		ProvokeMod.RunState.PendingRolls = ProvokeMod.RunState.PendingRolls or {}
+		ProvokeMod.RunState.PendingRolls[door.ObjectId] = sampled
+	end
 
 	-- On re-provoke, guarantee the current choice stays in the sample so
 	-- Revert / Keep Choice has a reliable home even if sampling displaced it.
@@ -2059,10 +2107,19 @@ function ProvokeMod.OpenProvocationScreen( door )
 	local greedExtension = config.GreedExtendsDuration and math.max( 0, nextPosition - 1 ) or 0
 
 	-- Build the per-row config list from the sampled pool entries.
+	-- SeleneBoon's card icon is a special case: if the player already has a
+	-- slotted hex, Transform will spawn a TalentDrop (upgrade) rather than a
+	-- SpellDrop (new hex), so the card should preview the TalentDrop icon to
+	-- match what the player actually receives.
+	local seleneUpgrade = ProvokeMod.PlayerHasSlottedSeleneHex()
 	local visibleConfigs = {}
 	for _, item in ipairs( sampled ) do
 		local entry    = item.entry
 		local duration = (config[entry.DurationKey] or entry.DurationDefault or 1) + greedExtension
+		local iconAnim = entry.IconAnim
+		if item.choiceType == "SeleneBoon" and seleneUpgrade then
+			iconAnim = "TalentDropPreview"
+		end
 		table.insert( visibleConfigs, {
 			key             = item.key,
 			choiceType      = item.choiceType,
@@ -2070,7 +2127,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 			cost            = item.cost,
 			duration        = duration,
 			rarity          = entry.Rarity,
-			iconAnim        = entry.IconAnim,
+			iconAnim        = iconAnim,
 			iconOverlayAnim = entry.IconOverlayAnim,
 		})
 	end
