@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-25
+
 ### Added
 
 - **Helm-wheel provocation in the Rift of Thessaly** — hold-Interact on a `ShipsSteeringWheel` spoke whose reward is Bones, Ashes, or Nectar (small or big variants) to open the Provoke the Fates menu. Picking a choice transforms the spoke and immediately starts the wheel encounter with the chosen Fear applied. The unified meta-resource whitelist also now covers the `Big` variants of Bones / Ashes wherever they appear.
@@ -32,5 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Per-type config knobs** for all nine reward types: `Cost_<Type>`, `GreedMultiplier_<Type>`, `Duration_<Type>`, `Weight_<Type>` (`RegularBoon`, `EnhancedBoon`, `Hammer`, `Gold`, `CentaurHeart`, `Magick`, `Pom`, `SeleneBoon`, `HermesBoon`). Set `Weight_<Type> = 0` to exclude a type from the menu entirely.
 - **Global config knobs**: `EnableGreed`, `GreedExtendsDuration`, `ThemedSplitThreshold`, `ProvokeHoldSeconds`, `RequireIncantation`, `LogLevel` (TRACE / DEBUG / INFO / WARN / ERROR).
 
-[unreleased]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.0...HEAD
+[unreleased]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.1...HEAD
+[1.0.1]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.0...1.0.1
 [1.0.0]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/987b54d0b458a535e4d59bbe13a88fb59f19ab77...1.0.0
