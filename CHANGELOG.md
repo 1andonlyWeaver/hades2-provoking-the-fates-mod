@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Helm-wheel provocation in the Rift of Thessaly** — hold-Interact on a `ShipsSteeringWheel` spoke whose reward is Bones, Ashes, or Nectar (small or big variants) to open the Provoke the Fates menu. Picking a choice transforms the spoke and immediately starts the wheel encounter with the chosen Fear applied. The unified meta-resource whitelist also now covers the `Big` variants of Bones / Ashes wherever they appear.
+
+### Changed
+
+- Doors leading into Rift of Thessaly rooms (biome `O`) no longer prompt for provocation; the wheel inside the room is the provocation point.
+- Trimmed the em dash from the package description for consistency.
+
 ## [1.0.0] - 2026-04-24
 
 ### Added
