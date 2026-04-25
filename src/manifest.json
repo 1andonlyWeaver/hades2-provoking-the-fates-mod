@@ -1,7 +1,7 @@
 {
   "namespace": "1andonlyWeaver",
   "name": "ProvokingTheFates",
-  "description": "Provoke reward doors to upgrade them — at the cost of temporary Oath of the Unseen fear.",
+  "description": "Provoke reward doors to upgrade them, at the cost of temporary Oath of the Unseen fear.",
   "version_number": "1.0.0",
   "dependencies": [
     "Hell2Modding-Hell2Modding-1.0.70",
