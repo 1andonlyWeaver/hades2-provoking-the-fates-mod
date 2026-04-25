@@ -108,6 +108,10 @@ r2modman's config editor manages `1andonlyWeaver-ProvokingTheFates.cfg` directly
 **I want more verbose logs for bug reports.**
 Set `LogLevel = "DEBUG"` (or `"TRACE"`) in the config. Logs go to Hell2Modding's standard log output.
 
+## Compatibility
+
+**Nightmare Fear** ([ReadEmAndWeep-Nightmare_Fear](https://thunderstore.io/c/hades-ii/p/ReadEmAndWeep/Nightmare_Fear/)). When both mods are installed, Provoking the Fates extends its eligible-vow pool with Nightmare Fear's Vows of Naivety, Riposte, Arrogance, Secrets, Taxes, and Panic, and skips Selene-boon provocations while the player holds Nightmare Fear's Eclipse vow. No configuration is required; detection is automatic.
+
 ## Feedback
 
 Bug reports and feature requests go on the [GitHub issues tracker](https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/issues).

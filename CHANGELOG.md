@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Nightmare Fear compatibility** — when [ReadEmAndWeep-Nightmare_Fear](https://thunderstore.io/c/hades-ii/p/ReadEmAndWeep/Nightmare_Fear/) is installed, the eligible-vow pool extends with Vows of Naivety, Riposte, Arrogance, Secrets, Taxes, and Panic. Selene-boon provocations are skipped while Nightmare Fear's Eclipse vow is active.
+
 ## [1.0.1] - 2026-04-25
 
 ### Added
