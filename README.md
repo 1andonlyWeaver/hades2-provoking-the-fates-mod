@@ -106,6 +106,8 @@ Either every eligible vow is already at its native max rank (the "Fates Satisfie
 r2modman's config editor manages `1andonlyWeaver-ProvokingTheFates.cfg` directly. Changes apply on the next run start (or immediately for hot-reloadable values like `LogLevel`).
 
 **I want more verbose logs for bug reports.**
+
+**Now has in-built compatibility with Nightmare Fear!**
 Set `LogLevel = "DEBUG"` (or `"TRACE"`) in the config. Logs go to Hell2Modding's standard log output.
 
 ## Feedback
