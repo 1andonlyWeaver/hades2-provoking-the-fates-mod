@@ -87,8 +87,10 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- Remove hint and kill background listener before leaving
 	ProvokeMod.DespawnProvokeHint()
 
-	-- Safety: always restore baseline ranks when leaving a room. Stack decay is
-	-- handled by RestoreVowsAndDecayStacks at end-of-last-encounter.
+	-- Safety: always restore baseline ranks when leaving a room. Stack decay
+	-- happens on each EndEncounterEffects (per-encounter model), so this is
+	-- only a final scrub of any lingering ShrineUpgrades injection before
+	-- the next room reads it.
 	ProvokeMod.RestoreVowsOnly()
 
 	-- Clear provoked door state for the room being left. Door ObjectIds can be
@@ -105,6 +107,11 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 	-- without triggering a provoked cage, its ObjectId is gone and the
 	-- FearCost shouldn't keep counting against the next room's capacity.
 	ProvokeMod.RunState.ProvokedCages = {}
+
+	-- Helm-wheel spokes are destroyed by ShipsEncounterSetup the moment a
+	-- selection commits, so this table only holds at most one transient
+	-- entry while the wheel encounter resolves. Wipe per-room for hygiene.
+	ProvokeMod.RunState.ProvokedShipWheels = {}
 
 	-- Restore RewardStoreName before base pushes CurrentRoom into RoomHistory,
 	-- so CalcMetaProgressRatio counts this provoked room as MetaProgress in
@@ -259,4 +266,46 @@ modutil.mod.Path.Wrap( "UseConsumableItem", function( base, consumableItem, args
 		end
 	end
 	return base( consumableItem, args, user )
+end, mod )
+
+-- ============================================================================
+-- Hooks 12-14: Long-press gate on Rift of Thessaly helm-wheel spokes
+-- ============================================================================
+-- The wheel's three spokes (ShipsSteeringWheel / …Left / …Right) each fire
+-- their own UseShipWheel<dir> entry function (PresentationBiomeO.lua:880,
+-- 901, 923). Wrapping each is the earliest seam — they run before the
+-- animation, before ShipWheelEnd → UseShipWheel notifies the encounter
+-- waiter. Same hold-vs-tap pattern as Hook 11; the shared body lives in
+-- ProvokeMod.TryProvokeShipWheelGate so all three wraps are one-liners.
+modutil.mod.Path.Wrap( "UseShipWheelForward", function( base, wheel, ... )
+	ProvokeMod.Log.debug( "wheel", "wrap fired: UseShipWheelForward", {
+		hasWheel   = wheel ~= nil,
+		name       = wheel and wheel.Name,
+		objectId   = wheel and wheel.ObjectId,
+		extraArgCount = select( "#", ... ),
+	} )
+	if ProvokeMod.TryProvokeShipWheelGate( wheel ) then return end
+	return base( wheel, ... )
+end, mod )
+
+modutil.mod.Path.Wrap( "UseShipWheelLeft", function( base, wheel, ... )
+	ProvokeMod.Log.debug( "wheel", "wrap fired: UseShipWheelLeft", {
+		hasWheel   = wheel ~= nil,
+		name       = wheel and wheel.Name,
+		objectId   = wheel and wheel.ObjectId,
+		extraArgCount = select( "#", ... ),
+	} )
+	if ProvokeMod.TryProvokeShipWheelGate( wheel ) then return end
+	return base( wheel, ... )
+end, mod )
+
+modutil.mod.Path.Wrap( "UseShipWheelRight", function( base, wheel, ... )
+	ProvokeMod.Log.debug( "wheel", "wrap fired: UseShipWheelRight", {
+		hasWheel   = wheel ~= nil,
+		name       = wheel and wheel.Name,
+		objectId   = wheel and wheel.ObjectId,
+		extraArgCount = select( "#", ... ),
+	} )
+	if ProvokeMod.TryProvokeShipWheelGate( wheel ) then return end
+	return base( wheel, ... )
 end, mod )

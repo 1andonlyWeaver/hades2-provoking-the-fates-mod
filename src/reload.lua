@@ -479,6 +479,7 @@ function ProvokeMod.ResetRunState()
 		FearHUDIconIds = nil,           -- HUD cluster showing active vows this room
 		ProvokedDoors = {},
 		ProvokedCages = {},          -- cageObjectId → { ChoiceType, FearCost, RewardId, Cage }
+		ProvokedShipWheels = {},     -- wheelObjectId → { ChoiceType, FearCost, originals }
 		PendingRolls = {},           -- doorObjectId → cached [3] sample so back-out/reopen doesn't reroll
 		LastFearCost = nil,
 		ProvokeHintId = nil,
@@ -583,6 +584,17 @@ function ProvokeMod.IsMetaProgressDoor( door )
 	if door.Room.ChosenRewardType == "Story" or door.Room.ForcedReward == "Story" then
 		return false
 	end
+	-- Exclude Rift of Thessaly (biome O) destinations: those rooms route their
+	-- reward through ShipsSteeringWheel obstacles inside the room, not the door
+	-- upstream. Provocation belongs to the wheel itself (handled by
+	-- IsProvokableShipWheel + the UseShipWheel<dir> wraps). Provoking the door
+	-- here would replace the whole wheel encounter with a single Boon room —
+	-- losing the wheel UX and double-counting against the same reward slot.
+	-- Boss rooms in biome O are already filtered above by the `<Biome>_Boss\d+`
+	-- regex; this just covers the standard combat / wheel-reward rooms.
+	if door.Room.RoomSetName == "O" then
+		return false
+	end
 	return (door.RewardStoreName or door.Room.RewardStoreName) == "MetaProgress"
 end
 
@@ -599,42 +611,148 @@ function ProvokeMod.IsProvokableDoor( door )
 	return pd ~= nil and pd.Provoked and pd.OriginalRewardStoreName == "MetaProgress"
 end
 
--- Fix 4b: Mourning Fields (biome H) doesn't gate minor rewards behind exit
--- doors. Ash / Bones / Psyche ship as free-floating MetaCurrencyDrop
--- consumables that fire through UseConsumableItem instead of LeaveRoom. The
--- mod treats these as provokable targets too, but downstream code that reads
--- door.Room or auto-proceeds via LeaveRoom must gate on target type.
--- Fields-biome consumable pickups that correspond to the "minor meta-reward"
--- doors we already accept in other biomes. Vanilla mapping from
--- HelpText.en.sjson + ConsumableData.lua:
---   MetaCurrencyDrop         → Bones (MetaCurrency = 50)
---   MetaCardPointsCommonDrop → Ashes (MetaCardPointsCommon = 5)
---   GiftDrop                 → Nectar
---   MemPointsCommonDrop      → Psyche  -- intentionally NOT provokable
---   PlantFMolyDrop           → Moly    -- intentionally NOT provokable
--- In-run loot (MaxManaDrop, ArmorBoost, RoomMoneyDrop, RoomRewardHealDrop) is
--- also excluded — those aren't cross-run meta-progression rewards.
-ProvokeMod.ProvokableFieldsPickupNames = {
-	MetaCurrencyDrop         = true,  -- Bones
-	MetaCardPointsCommonDrop = true,  -- Ashes
-	GiftDrop                 = true,  -- Nectar
+-- Single canonical whitelist of meta-progression resource consumable Names
+-- the mod treats as provokable inputs anywhere in the game. Both the
+-- Fields-pickup predicate and the helm-wheel predicate consult this table.
+-- Vanilla mapping from HelpText.en.sjson + ConsumableData.lua:
+--   MetaCurrencyDrop             → Bones, small (Fields pickup; ConsumableData:1637)
+--   MetaCardPointsCommonDrop     → Ashes, small (Fields pickup; ConsumableData:1530)
+--   GiftDrop                     → Nectar (Fields pickup AND helm wheel; ConsumableData:1828)
+--   MetaCurrencyBigDrop          → Bones, big (helm wheel; ConsumableData:1750)
+--   MetaCardPointsCommonBigDrop  → Ashes, big (helm wheel; ConsumableData:1581)
+-- The big variants ship the same resource as their small siblings in larger
+-- amounts and appear on the Rift of Thessaly helm wheel. Per playtest, the
+-- mod treats them as provokable wherever they appear (wheel, Fields, etc).
+-- Intentionally NOT provokable: MemPointsCommonDrop (Psyche), PlantFMolyDrop
+-- (Moly), and in-run loot like MaxManaDrop / RoomMoneyDrop / ArmorBoost —
+-- none of those are cross-run meta-progression rewards.
+ProvokeMod.ProvokableMetaResourceNames = {
+	MetaCurrencyDrop            = true,  -- Bones (small)
+	MetaCardPointsCommonDrop    = true,  -- Ashes (small)
+	GiftDrop                    = true,  -- Nectar
+	MetaCurrencyBigDrop         = true,  -- Bones (big)
+	MetaCardPointsCommonBigDrop = true,  -- Ashes (big)
 }
+
+-- Backwards-compatible alias — older code (and any external touch points)
+-- may still reference the original name. Both point to the same table.
+ProvokeMod.ProvokableFieldsPickupNames = ProvokeMod.ProvokableMetaResourceNames
 
 function ProvokeMod.IsProvokableFieldsPickup( useTarget )
 	if not ProvokeMod.IsUnlocked() then return false end
 	if useTarget == nil or useTarget.Name == nil then return false end
 	local room = CurrentRun and CurrentRun.CurrentRoom
 	if room == nil or room.RoomSetName ~= "H" then return false end
-	return ProvokeMod.ProvokableFieldsPickupNames[useTarget.Name] == true
+	return ProvokeMod.ProvokableMetaResourceNames[useTarget.Name] == true
 end
 
--- True for any target the provocation flow should accept — door or Fields
--- pickup. Callers that need to branch on shape should switch on the specific
--- predicate (IsProvokableDoor vs IsProvokableFieldsPickup).
+-- Helm-wheel obstacle names (ObstacleDataO.lua: ShipsSteeringWheel, …Left,
+-- …Right). Each spoke is a separate obstacle with its own ChosenRewardType.
+ProvokeMod.ShipWheelObstacleNames = {
+	ShipsSteeringWheel      = true,
+	ShipsSteeringWheelLeft  = true,
+	ShipsSteeringWheelRight = true,
+}
+
+function ProvokeMod.IsProvokableShipWheel( useTarget )
+	if not ProvokeMod.IsUnlocked() then return false end
+	if useTarget == nil or useTarget.Name == nil then return false end
+	-- Diagnostic: surface every wheel-Named target so we can distinguish
+	-- "predicate never sees the wheel" from "wheel reward type not on the
+	-- whitelist". Demote back to debug once the bug is understood.
+	if ProvokeMod.ShipWheelObstacleNames[useTarget.Name] then
+		local rewardOk = ProvokeMod.ProvokableMetaResourceNames[useTarget.ChosenRewardType] == true
+		ProvokeMod.Log.debug( "wheel", "IsProvokableShipWheel decision", {
+			name           = useTarget.Name,
+			objectId       = useTarget.ObjectId,
+			chosenReward   = useTarget.ChosenRewardType,
+			forceLootName  = useTarget.ForceLootName,
+			rewardStore    = useTarget.RewardStoreName,
+			whitelistMatch = rewardOk,
+		} )
+		return rewardOk
+	end
+	return false
+end
+
+-- True for any target the provocation flow should accept — door, Fields
+-- pickup, or helm-wheel spoke. Callers that need to branch on shape should
+-- switch on the specific predicate.
 function ProvokeMod.IsProvokableTarget( target )
 	if target == nil then return false end
 	if ProvokeMod.IsProvokableFieldsPickup( target ) then return true end
+	if ProvokeMod.IsProvokableShipWheel( target ) then return true end
 	return ProvokeMod.IsProvokableDoor( target )
+end
+
+-- Shared hold-vs-tap gate for the three UseShipWheel* spoke entry points.
+-- Returns true when the press was consumed (menu opened) so the wrap can
+-- suppress base; false to let base run (tap, ineligible target, blocked
+-- spoke). Mirrors the Hook-11 UseConsumableItem pattern.
+function ProvokeMod.TryProvokeShipWheelGate( wheel )
+	-- Diagnostic: log every entry so we can confirm whether the
+	-- UseShipWheel<dir> wraps fire at all. Demote to debug once the
+	-- end-to-end flow is understood.
+	ProvokeMod.Log.debug( "wheel", "TryProvokeShipWheelGate enter", {
+		hasWheel       = wheel ~= nil,
+		name           = wheel and wheel.Name,
+		objectId       = wheel and wheel.ObjectId,
+		chosenReward   = wheel and wheel.ChosenRewardType,
+		forceLootName  = wheel and wheel.ForceLootName,
+		rewardStore    = wheel and wheel.RewardStoreName,
+		modUnlocked    = ProvokeMod.IsUnlocked(),
+		useDown        = IsControlDown({ Name = "Use" }),
+		interactDown   = IsControlDown({ Name = "Interact" }),
+		roomRequired   = HasRoomRequiredObject and HasRoomRequiredObject() or false,
+	} )
+	if wheel == nil then
+		ProvokeMod.Log.debug( "wheel", "gate bail: nil wheel" )
+		return false
+	end
+	if not ProvokeMod.IsProvokableShipWheel( wheel ) then
+		ProvokeMod.Log.debug( "wheel", "gate bail: not provokable", {
+			name = wheel.Name, chosenReward = wheel.ChosenRewardType,
+		} )
+		return false
+	end
+	-- Vanilla rejects the press when a required object exists in the room
+	-- (PresentationBiomeO.lua:882). Don't open the menu in that state.
+	if HasRoomRequiredObject and HasRoomRequiredObject() then
+		ProvokeMod.Log.debug( "wheel", "gate bail: room required" )
+		return false
+	end
+	if not (IsControlDown({ Name = "Use" }) or IsControlDown({ Name = "Interact" })) then
+		ProvokeMod.Log.debug( "wheel", "gate bail: control not down at wrap entry" )
+		return false
+	end
+
+	local notifyName = "ProvokeMod__HoldReleaseShipWheel"
+	local threshold  = (config and config.ProvokeHoldSeconds) or 0.5
+	ProvokeMod.Log.debug( "wheel", "armed (ship wheel)", {
+		threshold = threshold,
+		objectId  = wheel.ObjectId,
+		name      = wheel.Name,
+		reward    = wheel.ChosenRewardType,
+	} )
+	NotifyOnControlReleased({
+		Names   = { "Use", "Interact" },
+		Notify  = notifyName,
+		Timeout = threshold,
+	})
+	waitUntil( notifyName )
+	local timedOut = _eventTimeoutRecord and _eventTimeoutRecord[ notifyName ]
+	if _eventTimeoutRecord then _eventTimeoutRecord[ notifyName ] = nil end
+	if timedOut then
+		ProvokeMod.Log.debug( "wheel", "hold (open ship-wheel menu)", {
+			objectId = wheel.ObjectId,
+		} )
+		ProvokeMod.OpenProvocationScreen( wheel )
+		return true
+	end
+	ProvokeMod.Log.debug( "wheel", "tap (use ship wheel)", {
+		objectId = wheel.ObjectId,
+	} )
+	return false
 end
 
 -- Find the first MetaProgress exit in the current room (provoked or not).
@@ -742,6 +860,25 @@ end
 function ProvokeMod.OnShowUseButton( objectId, useTarget )
 	ProvokeMod.LogFieldsInteractableShape( objectId, useTarget )
 
+	-- Diagnostic: dump every wheel-named obstacle the use prompt fires for,
+	-- with the fields the predicate inspects. Tells us whether ShowUseButton
+	-- is even firing for ship-wheel spokes.
+	if useTarget ~= nil and useTarget.Name ~= nil
+		and ProvokeMod.ShipWheelObstacleNames
+		and ProvokeMod.ShipWheelObstacleNames[useTarget.Name]
+	then
+		ProvokeMod.Log.debug( "wheel", "ShowUseButton for wheel obstacle", {
+			objectId         = objectId,
+			name             = useTarget.Name,
+			chosenRewardType = useTarget.ChosenRewardType,
+			forceLootName    = useTarget.ForceLootName,
+			rewardStoreName  = useTarget.RewardStoreName,
+			useFunctionName  = useTarget.UseFunctionName,
+			modUnlocked      = ProvokeMod.IsUnlocked(),
+			predicate        = ProvokeMod.IsProvokableShipWheel( useTarget ),
+		} )
+	end
+
 	-- Exit-door path (every biome, including Fields' own FieldsExitDoor).
 	if MapState ~= nil and MapState.OfferedExitDoors ~= nil then
 		local door = MapState.OfferedExitDoors[objectId]
@@ -762,6 +899,19 @@ function ProvokeMod.OnShowUseButton( objectId, useTarget )
 		ProvokeMod.Log.debug( "fields", "show (provokable pickup)", {
 			objectId = objectId,
 			name     = useTarget.Name,
+		} )
+		ProvokeMod.SpawnProvokeHint()
+		return
+	end
+
+	-- Helm-wheel spoke path (Rift of Thessaly): UseShipWheelForward / Left /
+	-- Right is the use entry point, gated separately by TryProvokeShipWheelGate.
+	if ProvokeMod.IsProvokableShipWheel( useTarget ) then
+		ProvokeMod.RunState.NearestProvokableDoor = useTarget
+		ProvokeMod.Log.debug( "wheel", "show (provokable spoke)", {
+			objectId = objectId,
+			name     = useTarget.Name,
+			reward   = useTarget.ChosenRewardType,
 		} )
 		ProvokeMod.SpawnProvokeHint()
 		return
@@ -1045,10 +1195,20 @@ function ProvokeMod.UpdateFearHUD()
 	-- now (ApplyCageFear queues via QueueFearStack), so this one read covers
 	-- both cases.
 	local maxRemaining = 0
-	for _, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
+	local stackDump = {}
+	for i, stack in ipairs( ProvokeMod.RunState.ActiveFearStacks or {} ) do
 		local rr = stack.RoomsRemaining or 0
 		if rr > maxRemaining then maxRemaining = rr end
+		table.insert( stackDump, (stack.ChoiceType or "?") .. "=" .. tostring( rr ) )
 	end
+	-- Diagnostic: log the exact value the HUD label is about to render so
+	-- in-game observation can be cross-checked against the stack state.
+	ProvokeMod.Log.debug( "fear", "hud_update", {
+		maxRemaining = maxRemaining,
+		stackCount   = #(ProvokeMod.RunState.ActiveFearStacks or {}),
+		stacks       = table.concat( stackDump, "," ),
+		labelText    = (maxRemaining == 1) and "1 encounter left" or (tostring( maxRemaining ) .. " encounters left"),
+	} )
 	if maxRemaining > 0 then
 		local labelX = startX + ((#vows - 1) * iconSpacing) / 2
 		local label = CreateScreenComponent({
@@ -1101,15 +1261,17 @@ function ProvokeMod.RestoreVowsOnly()
 	ProvokeMod.Log.trace( "fear", "RestoreVowsOnly complete", { vowsRestored = restored } )
 end
 
--- Restore vows AND advance stack bookkeeping — drops each active stack's
--- RoomsRemaining by 1 and removes stacks that have expired. Called from
--- OnEncounterEnd on the last encounter of the room.
-function ProvokeMod.RestoreVowsAndDecayStacks()
-	ProvokeMod.RestoreVowsOnly()
-
+-- Decrement each active stack's RoomsRemaining by 1 and drop expired ones.
+-- Does NOT touch ShrineUpgrades (use RestoreVowsOnly for that). Called from
+-- the LeaveRoom wrap so duration counts in *rooms*, not engine encounters —
+-- a single room with chained encounters (e.g., Rift's MultipleEncountersData
+-- spawns up to 3 chained encounters per wheel room) ticks once total, not
+-- once per chained encounter.
+function ProvokeMod.DecayStacks()
 	local stacks = ProvokeMod.RunState.ActiveFearStacks
 	if stacks == nil then return end
 	local before = #stacks
+	if before == 0 then return end
 	local kept = {}
 	local expired = 0
 	for _, stack in ipairs( stacks ) do
@@ -1131,11 +1293,20 @@ function ProvokeMod.RestoreVowsAndDecayStacks()
 		end
 	end
 	ProvokeMod.RunState.ActiveFearStacks = kept
-	ProvokeMod.Log.info( "fear", "restore + decay complete", {
+	ProvokeMod.Log.info( "fear", "decay complete", {
 		stacksBefore = before,
 		stacksAfter  = #kept,
 		expired      = expired,
 	} )
+end
+
+-- Legacy combined helper. Kept for any external callers; equivalent to
+-- RestoreVowsOnly() + DecayStacks(). New code paths should call them
+-- separately so restore (per-encounter) and decay (per-room) can be
+-- decoupled.
+function ProvokeMod.RestoreVowsAndDecayStacks()
+	ProvokeMod.RestoreVowsOnly()
+	ProvokeMod.DecayStacks()
 end
 
 -- Legacy alias: older call sites (KillHero, LeaveRoom safety) invoke
@@ -1501,6 +1672,105 @@ function ProvokeMod.TransformFieldsPickup( pickup, choiceType )
 	return cage
 end
 
+-- Redirect a helm-wheel spoke (Rift of Thessaly) onto the chosen reward
+-- type. Mirrors vanilla AttemptRerollShipWheel (InteractLogic.lua:1468):
+-- the spoke's loot was already resolved at ShipsEncounterSetup time, so
+-- to swap reward type we (a) run our ChoiceTypes Transform on (room,
+-- wheel) to mutate ChosenRewardType / RarityOverride / etc, (b) re-run
+-- SetupRoomReward to land a concrete ForceLootName for the new type, (c)
+-- copy resolved values back onto the wheel, and (d) refresh the on-spoke
+-- preview icon. Bookkeeping (greed counter + originals) follows the
+-- TransformDoor / TransformFieldsPickup convention.
+function ProvokeMod.TransformShipWheel( wheel, choiceType )
+	local entry = ProvokeMod.ChoiceTypes and ProvokeMod.ChoiceTypes[choiceType]
+	if entry == nil or entry.Transform == nil then
+		ProvokeMod.Log.error( "wheel", "TransformShipWheel: unknown choiceType", { choiceType = choiceType } )
+		return
+	end
+	if wheel == nil or wheel.ObjectId == nil or wheel.Room == nil then
+		ProvokeMod.Log.error( "wheel", "TransformShipWheel: malformed wheel" )
+		return
+	end
+
+	local room = wheel.Room
+	local fearCost = ProvokeMod.GetFearCost( choiceType )
+
+	local provokeData = {
+		ChoiceType               = choiceType,
+		FearCost                 = fearCost,
+		OriginalChosenRewardType = wheel.ChosenRewardType,
+		OriginalForceLootName    = wheel.ForceLootName,
+		OriginalRewardStoreName  = wheel.RewardStoreName,
+	}
+
+	-- Snapshot room fields the registry's Transform may stomp so we can
+	-- restore them — UseShipWheel re-sets ChosenRewardType / ForceLootName
+	-- from the wheel anyway, but we still want a clean room state for the
+	-- other spokes and the post-selection encounter.
+	local savedChosen    = room.ChosenRewardType
+	local savedLootName  = room.ForceLootName
+	local savedStoreName = room.RewardStoreName
+	local savedRarities  = room.BoonRaritiesOverride
+
+	room.ChosenRewardType = nil
+	room.ForceLootName    = nil
+	room.RewardOverrides  = nil
+
+	-- Mutates room.ChosenRewardType / room.RewardStoreName, plus
+	-- door.RewardStoreName (we pass the wheel as door). EnhancedBoon also
+	-- writes room.BoonRaritiesOverride which SetupRoomReward consumes.
+	entry.Transform( room, wheel )
+
+	-- Mirror AttemptRerollShipWheel (InteractLogic.lua:1483): re-run
+	-- SetupRoomReward on the new type so the engine resolves a concrete
+	-- ForceLootName (Boon → specific god, Hammer → weapon upgrade pool,
+	-- etc.) under any rarity override the Transform set.
+	local rewardsChosen = {}
+	for id, otherWheel in pairs( MapState.ShipWheels or {} ) do
+		if id ~= wheel.ObjectId then
+			table.insert( rewardsChosen, {
+				RewardType    = otherWheel.ChosenRewardType,
+				ForceLootName = otherWheel.ForceLootName,
+			} )
+		end
+	end
+	SetupRoomReward( CurrentRun, room, rewardsChosen, {
+		ChosenRewardType         = room.ChosenRewardType,
+		AlwaysSetupForceLootName = true,
+	} )
+
+	wheel.ChosenRewardType = room.ChosenRewardType
+	wheel.ForceLootName    = room.ForceLootName
+	wheel.RewardStoreName  = room.RewardStoreName
+
+	room.ChosenRewardType    = savedChosen
+	room.ForceLootName       = savedLootName
+	room.RewardStoreName     = savedStoreName
+	room.BoonRaritiesOverride = savedRarities
+
+	ProvokeMod.RunState.ProvokedShipWheels = ProvokeMod.RunState.ProvokedShipWheels or {}
+	ProvokeMod.RunState.ProvokedShipWheels[wheel.ObjectId] = provokeData
+	ProvokeMod.RunState.ProvocationCount = (ProvokeMod.RunState.ProvocationCount or 0) + 1
+	ProvokeMod.RunState.ProvokedCounts[choiceType] =
+		(ProvokeMod.RunState.ProvokedCounts[choiceType] or 0) + 1
+
+	-- Refresh the on-spoke icon and use prompt (vanilla pattern,
+	-- InteractLogic.lua:1486-1488).
+	CreateDoorRewardPreview( wheel, wheel.ChosenRewardType, wheel.ForceLootName, nil,
+		{ ReUseIds = true } )
+	RefreshUseButton( wheel.ObjectId, wheel )
+
+	ProvokeMod.Log.info( "provoke", "transform ship wheel", {
+		choiceType       = choiceType,
+		fearCost         = fearCost,
+		wheelId          = wheel.ObjectId,
+		wheelName        = wheel.Name,
+		newRewardType    = wheel.ChosenRewardType,
+		newLootName      = wheel.ForceLootName,
+		provocationCount = ProvokeMod.RunState.ProvocationCount,
+	} )
+end
+
 -- Compute the animation name for a door's new reward icon. Mirrors the
 -- fallback chain in vanilla CreateDoorRewardPreview (RewardPresentation.lua):
 --   * Boon + ForceLootName   → LootData[loot].DoorUpgradedIcon (when rarity-
@@ -1795,6 +2065,7 @@ local function buildChoiceRow( screen, key, params )
 	slot.OnMouseOffFunctionName  = "ProvokeMod__OnCardMouseOff"
 	slot.Door           = params.Door
 	slot.IsFieldsPickup = params.IsFieldsPickup or false
+	slot.IsShipWheel    = params.IsShipWheel or false
 	slot.Screen         = screen
 	slot.ChoiceType     = params.ChoiceType
 	screen.Components[key] = slot
@@ -1931,13 +2202,17 @@ function ProvokeMod.OpenProvocationScreen( door )
 		return
 	end
 
-	-- Fix 4b: distinguish door-style targets (which support re-provoke via the
-	-- ProvokedDoors table) from Fields pickups (one-shot: pickup destroyed and
-	-- replaced with a cage on commit, no re-approach possible).
+	-- Distinguish door-style targets (which support re-provoke via the
+	-- ProvokedDoors table) from one-shot targets that vanish on commit:
+	-- Fields pickups (pickup destroyed → cage spawned) and helm-wheel spokes
+	-- (spoke destroyed by ShipsEncounterSetup once selection commits). Both
+	-- one-shot shapes skip the re-provoke / Revert UX.
 	local isFieldsPickup = ProvokeMod.IsProvokableFieldsPickup( door )
+	local isShipWheel    = ProvokeMod.IsProvokableShipWheel( door )
 
 	local existingData = ProvokeMod.RunState.ProvokedDoors[door.ObjectId]
-	local isReprovoke = (not isFieldsPickup) and existingData ~= nil and existingData.Provoked == true
+	local isReprovoke = (not isFieldsPickup) and (not isShipWheel)
+		and existingData ~= nil and existingData.Provoked == true
 	local currentChoiceType = isReprovoke and existingData.ChoiceType or nil
 
 	-- Total ranks the eligible-vow pool can still absorb. Any option whose
@@ -2181,6 +2456,7 @@ function ProvokeMod.OpenProvocationScreen( door )
 			Index           = i,
 			Door            = door,
 			IsFieldsPickup  = isFieldsPickup,
+			IsShipWheel     = isShipWheel,
 			ChoiceType      = choice.choiceType,
 			Title           = choice.title,
 			TitleColor      = ProvokeMod.ChoiceTypes[choice.choiceType].UIColor,
@@ -2289,10 +2565,48 @@ game.ProvokeMod__OnSelectChoice = function( screen, button )
 	PlaySound({ Name = "/SFX/Menu Sounds/IrisMenuConfirm" })
 	local target = button.Door
 	ProvokeMod.Log.info( "provoke", "select choice", {
-		choiceType = button.ChoiceType,
-		objectId   = target and target.ObjectId,
-		isPickup   = button.IsFieldsPickup or false,
+		choiceType  = button.ChoiceType,
+		objectId    = target and target.ObjectId,
+		isPickup    = button.IsFieldsPickup or false,
+		isShipWheel = button.IsShipWheel or false,
 	} )
+
+	-- Helm-wheel commit (Rift of Thessaly): mutate the spoke to the new
+	-- reward type, queue Fear, inject it into the encounter NOW (the ship
+	-- encounter is mid-flight — StartEncounter already fired at room entry
+	-- before the player saw the wheel, then ShipsEncounterSetup blocked on
+	-- waitUntil("ShipsEncounterSelected"); StartEncounter will not fire
+	-- again for this combat, so the standard StartEncounter-wrap injection
+	-- path won't pick up our just-queued stack), then re-enter the spoke's
+	-- vanilla use function so the animation and combat unblock. The
+	-- re-entry naturally falls through our wrap because Use is no longer
+	-- held (Confirm was pressed) and the wheel's ChosenRewardType is no
+	-- longer in the meta-resource whitelist.
+	if button.IsShipWheel then
+		local injection = screen.PreviewedInjections
+			and screen.PreviewedInjections[button.ChoiceType]
+		ProvokeMod.TransformShipWheel( target, button.ChoiceType )
+		-- TransformShipWheel just incremented ProvocationCount, so this
+		-- GetFearCost call resolves to the slot the provocation just
+		-- occupied — same convention as the door path
+		-- (LeaveRoom queues stack with provokeData.FearCost recorded by
+		-- TransformDoor's earlier increment).
+		local fearCost = ProvokeMod.GetFearCost( button.ChoiceType,
+			ProvokeMod.RunState.ProvocationCount )
+		ProvokeMod.QueueFearStack( button.ChoiceType, injection, fearCost )
+		ProvokeMod.RunState.LastFearCost = fearCost
+		-- Apply now (mid-encounter): mirrors what the StartEncounter wrap
+		-- would have done if it had fired post-queue. Updates ShrineUpgrades
+		-- + extracts vow values + spawns the HUD/banner so the wheel's
+		-- combat starts with the elevated vows the player just paid for.
+		ProvokeMod.ApplyActiveStacksForEncounter()
+		ProvokeMod.CloseProvocationScreen( screen )
+		local fn = UseShipWheelForward
+		if target.Name == "ShipsSteeringWheelLeft"  then fn = UseShipWheelLeft  end
+		if target.Name == "ShipsSteeringWheelRight" then fn = UseShipWheelRight end
+		thread( fn, target )
+		return
+	end
 
 	-- Fields pickup commit: destroy the consumable in place, spawn a
 	-- FieldsRewardCage wrapping the upgraded reward, then immediately fire
@@ -2444,12 +2758,11 @@ function ProvokeMod.OnRoomStart( currentRun, currentRoom )
 end
 
 -- Called from EndEncounterEffects wrap before the base function.
--- Vanilla sets encounter.Completed = true exactly once per real combat
--- encounter (RoomLogic.lua:1921), and EndEncounterEffects fires at that
--- moment — so every combat encounter's end ticks decay once. No room-level
--- "last encounter" gate: Fields rooms with multiple cage combats decrement
--- once per cage, multi-wave rooms decrement once per wave, single-combat
--- rooms decrement once.
+-- Per-encounter decay model: every combat encounter end ticks RoomsRemaining
+-- down by 1, regardless of whether the next encounter is in the same room
+-- (Rift's MultipleEncountersData chain, multi-wave rooms, Fields cage
+-- chains) or a different one. Non-combat encounters (Devotion trial, NPC
+-- beat) only restore ranks — RoomsRemaining stays so Fear rides over filler.
 function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 	local isCombat = ProvokeMod.IsCombatEncounter( currentEncounter )
 	ProvokeMod.Log.info( "room", "encounter_end", {
@@ -2457,8 +2770,9 @@ function ProvokeMod.OnEncounterEnd( currentRun, currentRoom, currentEncounter )
 		encounterType = currentEncounter and currentEncounter.EncounterType,
 	} )
 	if isCombat then
-		-- Combat encounter ended: restore baseline ranks and decay stacks.
-		ProvokeMod.RestoreVowsAndDecayStacks()
+		-- Combat encounter ended: restore baseline ranks AND decay one tick.
+		ProvokeMod.RestoreVowsOnly()
+		ProvokeMod.DecayStacks()
 		ProvokeMod.LogFearStackState( "encounter_end" )
 	else
 		-- Non-combat encounter (Devotion trial, NPC beat, etc.): scrub any
