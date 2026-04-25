@@ -43,6 +43,25 @@ ProvokeMod.EligibleVows = {
 	"EnemyEliteShrineUpgrade",
 }
 
+-- ReadEmAndWeep-Nightmare_Fear ships its own Oath-of-the-Unseen-style vows as
+-- MetaUpgradeData entries that vanilla GetNumShrineUpgrades reads through
+-- GameState.ShrineUpgrades — the same path our injection writes to — so the
+-- existing engine handles them without any per-vow special-casing. Detection is
+-- lazy via `rom.mods` so plugin load order between us and Nightmare Fear is not
+-- load-bearing.
+if rom and rom.mods and rom.mods["ReadEmAndWeep-Nightmare_Fear"] then
+	for _, vow in ipairs({
+		"NightmareFearNoManaMetaUpgrade",
+		"NightmareFearEnemyDodgeMetaUpgrade",
+		"NightmareFearFirstHitMetaUpgrade",
+		"NightmareFearBlindRewardMetaUpgrade",
+		"NightmareFearTaxMetaUpgrade",
+		"NightmareFearLowManaStartMetaUpgrade",
+	}) do
+		table.insert( ProvokeMod.EligibleVows, vow )
+	end
+end
+
 -- ----------------------------------------------------------------------------
 -- ChoiceTypes registry. Every per-choice-type branch in the mod reads from
 -- here: cost / greed / duration config keys, UI styling, and the door / cage
@@ -339,7 +358,13 @@ ProvokeMod.ChoiceTypes = {
 		-- or third Hex is exactly the point.
 		IsEligible = function( run, room )
 			local tlr = GameState and GameState.TextLinesRecord
+			-- Nightmare Fear's Eclipse vow strips Selene drops outright
+			-- (TraitLogic_Shrine.lua: SpellDrop/TalentDrop suppression),
+			-- so a Selene-boon provocation under Eclipse would charge Fear
+			-- for a reward the player can't keep. Returns 0 when Nightmare
+			-- Fear is absent, so this gate is a no-op without it.
 			return tlr ~= nil and tlr.SeleneFirstPickUp == true
+				and GetNumShrineUpgrades("NightmareFearEclipseMetaUpgrade") < 1
 		end,
 
 		Transform = function( room, door )
@@ -2796,28 +2821,44 @@ function ProvokeMod.TableLength( t )
 	return count
 end
 
--- Display names for each eligible vow (from English localization)
+-- Display names for each eligible vow (from English localization).
+-- Nightmare Fear entries are present unconditionally; without that mod
+-- installed, the vow names never reach EligibleVows so the entries are
+-- harmless dead weight rather than a runtime path.
 ProvokeMod.VowDisplayNames = {
-	EnemyDamageShrineUpgrade      = "Vow of Pain",
-	EnemyHealthShrineUpgrade      = "Vow of Grit",
-	EnemyShieldShrineUpgrade      = "Vow of Wards",
-	EnemySpeedShrineUpgrade       = "Vow of Frenzy",
-	EnemyCountShrineUpgrade       = "Vow of Hordes",
-	NextBiomeEnemyShrineUpgrade   = "Vow of Menace",
-	EnemyRespawnShrineUpgrade     = "Vow of Return",
-	EnemyEliteShrineUpgrade       = "Vow of Fangs",
+	EnemyDamageShrineUpgrade             = "Vow of Pain",
+	EnemyHealthShrineUpgrade             = "Vow of Grit",
+	EnemyShieldShrineUpgrade             = "Vow of Wards",
+	EnemySpeedShrineUpgrade              = "Vow of Frenzy",
+	EnemyCountShrineUpgrade              = "Vow of Hordes",
+	NextBiomeEnemyShrineUpgrade          = "Vow of Menace",
+	EnemyRespawnShrineUpgrade            = "Vow of Return",
+	EnemyEliteShrineUpgrade              = "Vow of Fangs",
+	NightmareFearNoManaMetaUpgrade       = "Vow of Naivety",
+	NightmareFearEnemyDodgeMetaUpgrade   = "Vow of Riposte",
+	NightmareFearFirstHitMetaUpgrade     = "Vow of Arrogance",
+	NightmareFearBlindRewardMetaUpgrade  = "Vow of Secrets",
+	NightmareFearTaxMetaUpgrade          = "Vow of Taxes",
+	NightmareFearLowManaStartMetaUpgrade = "Vow of Panic",
 }
 
 -- printf-style format strings for the numerical effect at the applied rank.
 ProvokeMod.VowValueFormats = {
-	EnemyDamageShrineUpgrade      = "+%d%% foe damage",
-	EnemyHealthShrineUpgrade      = "+%d%% foe health",
-	EnemyShieldShrineUpgrade      = "%d shield per foe",
-	EnemySpeedShrineUpgrade       = "+%d%% foe speed",
-	EnemyCountShrineUpgrade       = "+%d%% more foes",
-	NextBiomeEnemyShrineUpgrade   = "%d%% next-biome foes",
-	EnemyRespawnShrineUpgrade     = "%d%% respawn chance",
-	EnemyEliteShrineUpgrade       = "%d perk(s) on elites",
+	EnemyDamageShrineUpgrade             = "+%d%% foe damage",
+	EnemyHealthShrineUpgrade             = "+%d%% foe health",
+	EnemyShieldShrineUpgrade             = "%d shield per foe",
+	EnemySpeedShrineUpgrade              = "+%d%% foe speed",
+	EnemyCountShrineUpgrade              = "+%d%% more foes",
+	NextBiomeEnemyShrineUpgrade          = "%d%% next-biome foes",
+	EnemyRespawnShrineUpgrade            = "%d%% respawn chance",
+	EnemyEliteShrineUpgrade              = "%d perk(s) on elites",
+	NightmareFearNoManaMetaUpgrade       = "-%d%% max magick",
+	NightmareFearEnemyDodgeMetaUpgrade   = "%d%% foe dodge chance",
+	NightmareFearFirstHitMetaUpgrade     = "+%d%% first-hit damage",
+	NightmareFearBlindRewardMetaUpgrade  = "+%d%% hidden reward chance",
+	NightmareFearTaxMetaUpgrade          = "-%d {!Icons.Currency} per room",
+	-- LowManaStart's effect is binary (1 rank max); no %d placeholder needed.
+	NightmareFearLowManaStartMetaUpgrade = "start with 0 magick",
 }
 
 -- Compute the display value for a vow at newRank using its SimpleExtractValues rules.
