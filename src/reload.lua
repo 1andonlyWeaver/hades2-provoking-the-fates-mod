@@ -32,6 +32,8 @@ end
 -- Excluded vows have no meaningful effect during a single combat room:
 --   ShopPrices, MinibossCount, BiomeSpeed, HealingReduction,
 --   BoonManaReserve, LimitGrasp, BanUnpickedBoons
+
+if NightmareFear then
 ProvokeMod.EligibleVows = {
 	"EnemyDamageShrineUpgrade",
 	"EnemyHealthShrineUpgrade",
@@ -41,7 +43,25 @@ ProvokeMod.EligibleVows = {
 	"NextBiomeEnemyShrineUpgrade",
 	"EnemyRespawnShrineUpgrade",
 	"EnemyEliteShrineUpgrade",
+	"NightmareFearNoManaMetaUpgrade",
+	"NightmareFearEnemyDodgeMetaUpgrade",
+	"NightmareFearFirstHitMetaUpgrade",
+	"NightmareFearBlindRewardMetaUpgrade",
+	"NightmareFearTaxMetaUpgrade",
+	"NightmareFearLowManaStartMetaUpgrade",
 }
+else
+	ProvokeMod.EligibleVows = {
+	"EnemyDamageShrineUpgrade",
+	"EnemyHealthShrineUpgrade",
+	"EnemyShieldShrineUpgrade",
+	"EnemySpeedShrineUpgrade",
+	"EnemyCountShrineUpgrade",
+	"NextBiomeEnemyShrineUpgrade",
+	"EnemyRespawnShrineUpgrade",
+	"EnemyEliteShrineUpgrade",
+}
+end
 
 -- ----------------------------------------------------------------------------
 -- ChoiceTypes registry. Every per-choice-type branch in the mod reads from
@@ -339,7 +359,7 @@ ProvokeMod.ChoiceTypes = {
 		-- or third Hex is exactly the point.
 		IsEligible = function( run, room )
 			local tlr = GameState and GameState.TextLinesRecord
-			return tlr ~= nil and tlr.SeleneFirstPickUp == true
+			return tlr ~= nil and tlr.SeleneFirstPickUp == true and (GetNumShrineUpgrades("NightmareFearEclipse") < 1)
 		end,
 
 		Transform = function( room, door )
@@ -2492,6 +2512,12 @@ ProvokeMod.VowDisplayNames = {
 	NextBiomeEnemyShrineUpgrade   = "Vow of Menace",
 	EnemyRespawnShrineUpgrade     = "Vow of Return",
 	EnemyEliteShrineUpgrade       = "Vow of Fangs",
+	NightmareFearNoManaMetaUpgrade = "Vow of Naivety",
+	NightmareFearEnemyDodgeMetaUpgrade = "Vow of Riposte",
+	NightmareFearFirstHitMetaUpgrade = "Vow of Arrogance",
+	NightmareFearBlindRewardMetaUpgrade = "Vow of Secrets",
+	NightmareFearTaxMetaUpgrade = "Vow of Taxes",
+	NightmareFearLowManaStartMetaUpgrade = "Vow of Panic"
 }
 
 -- printf-style format strings for the numerical effect at the applied rank.
@@ -2504,6 +2530,12 @@ ProvokeMod.VowValueFormats = {
 	NextBiomeEnemyShrineUpgrade   = "%d%% next-biome foes",
 	EnemyRespawnShrineUpgrade     = "%d%% respawn chance",
 	EnemyEliteShrineUpgrade       = "%d perk(s) on elites",
+	NightmareFearNoManaMetaUpgrade = "-%d%% max magick",
+	NightmareFearEnemyDodgeMetaUpgrade = "%d%% foe dodge chance",
+	NightmareFearFirstHitMetaUpgrade = "+%d%% first-hit damage",
+	NightmareFearBlindRewardMetaUpgrade = "+%d%% hidden reward chance",
+	NightmareFearTaxMetaUpgrade = "-%d {!Icons.Currency} per room",
+	NightmareFearLowManaStartMetaUpgrade = "start with 0 magick"
 }
 
 -- Compute the display value for a vow at newRank using its SimpleExtractValues rules.
@@ -2621,3 +2653,33 @@ if not ProvokeMod._IncantationRegistered then
 		ProvokeMod._IncantationRegistered = true
 	end
 end
+
+modutil.mod.Path.Wrap("GetNumShrineUpgrades", function(base, upgradeName)
+	local value = base(upgradeName)
+	local stacks = ProvokeMod.RunState.ActiveFearStacks
+	local merged = {}
+	if stacks ~= nil and #stacks > 0 then
+		for _, stack in ipairs( stacks ) do
+			for vow, r in pairs( stack.Injection or {} ) do
+				merged[vow] = (merged[vow] or 0) + r
+			end
+		end
+	end
+	local injection = merged
+	for vowName, ranksToAdd in pairs( injection ) do
+		if vowName == upgradeName then
+			if vowName == "NightmareFearNoManaMetaUpgrade" then
+				value = value + ranksToAdd
+				value = math.max(value, 4)
+			elseif vowName == "NightmareFearBlindRewardMetaUpgrade" then
+				value = value + ranksToAdd
+				value = math.max(value, 4)
+			elseif vowName == "NightmareFearTaxMetaUpgrade" then
+				value = value + ranksToAdd
+			elseif vowName == "NightmareFearLowManaStartMetaUpgrade" then
+				value = 1
+			end
+		end
+	end
+	return value
+end)
