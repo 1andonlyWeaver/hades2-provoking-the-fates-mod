@@ -7,6 +7,10 @@
 -- 	so you will most likely want to have it reference
 --	values and functions later defined in `reload.lua`.
 
+local mods = rom.mods
+NightmareFear = mods['ReadEmAndWeep-Nightmare_Fear']
+
+
 -- ============================================================================
 -- Hook 1: Reset per-run state on new run
 -- ============================================================================
