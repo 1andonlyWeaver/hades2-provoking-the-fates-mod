@@ -35,12 +35,6 @@ if nightmareFearLoaded then
 		-- (e.g., ValidateMaxMana fired by a mid-combat trait acquisition).
 		local runState = ProvokeMod.RunState
 		if runState ~= nil and runState.TransientFearActive then
-			if ProvokeMod.Log then
-				ProvokeMod.Log.trace( "compat", "wrap skip in-encounter", {
-					vow  = upgradeName,
-					base = value,
-				} )
-			end
 			return value
 		end
 
@@ -67,20 +61,7 @@ if nightmareFearLoaded then
 		local maxRank = ProvokeMod.GetVowMaxRank( upgradeName )
 		local headroom = math.max( 0, maxRank - value )
 		local applied = math.min( ranksToAdd, headroom )
-		local final = value + applied
-
-		if applied > 0 and ProvokeMod.Log then
-			ProvokeMod.Log.info( "compat", "wrap top-up", {
-				vow        = upgradeName,
-				base       = value,
-				ranksToAdd = ranksToAdd,
-				applied    = applied,
-				final      = final,
-				maxRank    = maxRank,
-			} )
-		end
-
-		return final
+		return value + applied
 	end, mod )
 
 	if ProvokeMod.Log then

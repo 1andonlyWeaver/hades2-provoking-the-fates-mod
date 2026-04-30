@@ -1186,15 +1186,6 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 		FearCost       = fearCost or 0,
 	})
 
-	-- Flatten the injection map to "vow+ranks,vow+ranks" so playtest logs show
-	-- exactly which vows the upcoming stack will boost. Useful for correlating
-	-- "I picked Vow of X" with downstream `compat: wrap top-up` lines.
-	local vowSummary = {}
-	for vow, r in pairs( injection ) do
-		table.insert( vowSummary, vow .. "+" .. tostring( r ) )
-	end
-	table.sort( vowSummary )
-
 	ProvokeMod.Log.info( "fear", "queue stack", {
 		choiceType  = choiceType,
 		duration    = duration,
@@ -1202,7 +1193,6 @@ function ProvokeMod.QueueFearStack( choiceType, injection, fearCost )
 		extension   = extension,
 		fearCost    = fearCost or 0,
 		liveStacks  = #ProvokeMod.RunState.ActiveFearStacks,
-		vows        = table.concat( vowSummary, "," ),
 	} )
 end
 
