@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Nightmare Fear's Panic, Naivety, Taxes, and Secrets vows now actually fire on transient Fear ranks. These four vows are checked at lifecycle points outside the StartEncounter→EndEncounterEffects window where Provoking the Fates writes to ShrineUpgrades, so they previously read baseline ranks and silently ignored a provocation's contribution.
+
 ## [1.0.2] - 2026-04-25
 
 ### Added
