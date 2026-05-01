@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Nightmare Fear's Panic, Naivety, Taxes, and Secrets vows now actually fire on transient Fear ranks. These four vows are checked at lifecycle points outside the StartEncounter→EndEncounterEffects window where Provoking the Fates writes to ShrineUpgrades, so they previously read baseline ranks and silently ignored a provocation's contribution.
+- Successive Pom (Pomegranate) provocations in the same run no longer offer the same three upgrade choices. Vanilla bakes a Pom's upgrade options at loot-spawn time and `CreateBoonLootButtons` reuses that cache when the hero already owns every option (always true for Poms), so the seed advancement on pickup never reached the visible choices. The mod now flags provoked Pom exits and clears the cached options on the next `OpenUpgradeChoiceMenu`, letting vanilla re-roll under the freshly incremented `LootTypeHistory["StackUpgrade"]` seed.
+
 ## [1.0.2] - 2026-04-25
 
 ### Added

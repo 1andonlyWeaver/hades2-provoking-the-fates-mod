@@ -62,6 +62,25 @@ if rom and rom.mods and rom.mods["ReadEmAndWeep-Nightmare_Fear"] then
 	end
 end
 
+-- Subset of Nightmare Fear vows whose effects fire OUTSIDE our
+-- StartEncounter→EndEncounterEffects injection window:
+--   * LowManaStart — checked inside vanilla StartRoom (before StartEncounter)
+--   * NoMana       — checked via GetExpectedMaxMana → ValidateMaxMana on trait
+--                    add, mostly during post-combat boon presentation
+--   * Tax          — checked in LeaveRoom, after our OnEncounterEnd restore
+--   * BlindReward  — checked in CreateDoorRewardPreview from DoUnlockRoomExits,
+--                    inside base EndEncounterEffects (after our restore)
+-- For these, GameState.ShrineUpgrades only holds baseline ranks at check time,
+-- so a GetNumShrineUpgrades wrap (in src/ready_late.lua) tops the value up
+-- with active transient stacks. EnemyDodge and FirstHit fire on in-combat
+-- damage events while the injection is live, so they need no wrap.
+ProvokeMod.NightmareFearOutOfBandVows = {
+	NightmareFearLowManaStartMetaUpgrade = true,
+	NightmareFearNoManaMetaUpgrade       = true,
+	NightmareFearTaxMetaUpgrade          = true,
+	NightmareFearBlindRewardMetaUpgrade  = true,
+}
+
 -- ----------------------------------------------------------------------------
 -- ChoiceTypes registry. Every per-choice-type branch in the mod reads from
 -- here: cost / greed / duration config keys, UI styling, and the door / cage
@@ -506,6 +525,10 @@ function ProvokeMod.ResetRunState()
 		ProvokedCages = {},          -- cageObjectId → { ChoiceType, FearCost, RewardId, Cage }
 		ProvokedShipWheels = {},     -- wheelObjectId → { ChoiceType, FearCost, originals }
 		PendingRolls = {},           -- doorObjectId → cached [3] sample so back-out/reopen doesn't reroll
+		NextRewardIsProvokedPom = false, -- set by LeaveRoom when leaving via a Pom-provoked door so the
+		                                 -- next OpenUpgradeChoiceMenu can clear vanilla's spawn-time
+		                                 -- UpgradeOptions cache and re-roll under the freshly incremented
+		                                 -- LootTypeHistory["StackUpgrade"] seed (see src/ready_late.lua)
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,
@@ -1475,6 +1498,18 @@ function ProvokeMod.ApplyInjectionAdditively( injection )
 	if injection == nil then return 0 end
 	ProvokeMod.RunState.ActiveTransientVows = ProvokeMod.RunState.ActiveTransientVows or {}
 
+	-- Activate the in-injection guard BEFORE the per-vow loop. Vanilla
+	-- ShrineUpgradeExtractValues (called per-vow below, after we write the
+	-- boosted ShrineUpgrades value) calls GetNumShrineUpgrades internally
+	-- (ShrineLogic.lua:487), which the ready_late.lua compat wrap intercepts.
+	-- Without the guard active during this loop, the wrap reads the just-
+	-- written boost as baseline and adds the stack ranks again, inflating
+	-- the rank ShrineUpgradeExtractValues uses to compute upgradeData.
+	-- ChangeValue / DisplayValue. Only NF's four out-of-band vows are
+	-- affected (Panic / Naivety / Taxes / Secrets) — vanilla vows aren't
+	-- in NightmareFearOutOfBandVows so the wrap early-returns for them.
+	ProvokeMod.RunState.TransientFearActive = true
+
 	local appliedRanks = 0
 	for vowName, ranksToAdd in pairs( injection ) do
 		local baseline = GameState.ShrineUpgrades[vowName] or 0
@@ -1498,9 +1533,13 @@ function ProvokeMod.ApplyInjectionAdditively( injection )
 		end
 	end
 
-	if appliedRanks > 0 then
-		ProvokeMod.RunState.TransientFearActive = true
+	-- If nothing actually landed and no prior call left transient vows live,
+	-- drop the guard back so RestoreVowsOnly's no-op short-circuit still
+	-- works and so we don't lie about having injection active.
+	if appliedRanks == 0 and next( ProvokeMod.RunState.ActiveTransientVows ) == nil then
+		ProvokeMod.RunState.TransientFearActive = false
 	end
+
 	return appliedRanks
 end
 
