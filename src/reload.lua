@@ -525,6 +525,10 @@ function ProvokeMod.ResetRunState()
 		ProvokedCages = {},          -- cageObjectId → { ChoiceType, FearCost, RewardId, Cage }
 		ProvokedShipWheels = {},     -- wheelObjectId → { ChoiceType, FearCost, originals }
 		PendingRolls = {},           -- doorObjectId → cached [3] sample so back-out/reopen doesn't reroll
+		NextRewardIsProvokedPom = false, -- set by LeaveRoom when leaving via a Pom-provoked door so the
+		                                 -- next OpenUpgradeChoiceMenu can clear vanilla's spawn-time
+		                                 -- UpgradeOptions cache and re-roll under the freshly incremented
+		                                 -- LootTypeHistory["StackUpgrade"] seed (see src/ready_late.lua)
 		LastFearCost = nil,
 		ProvokeHintId = nil,
 		HintThreadActive = false,

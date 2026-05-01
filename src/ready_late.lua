@@ -68,3 +68,46 @@ if nightmareFearLoaded then
 		ProvokeMod.Log.info( "compat", "Nightmare Fear detected; GetNumShrineUpgrades wrap installed" )
 	end
 end
+
+-- =============================================================================
+-- Pom-of-Power option-cache fix.
+--
+-- Vanilla CreateLoot (RoomLogic.lua:2265) calls SetTraitsOnLoot at LOOT-SPAWN
+-- time, populating lootData.UpgradeOptions before the player ever picks up the
+-- StackUpgrade. By the time HandleLootPickup increments
+-- CurrentRun.LootTypeHistory["StackUpgrade"] and OpenUpgradeChoiceMenu calls
+-- RandomSynchronize on it (UpgradeChoiceLogic.lua:93), the options are already
+-- baked. CreateBoonLootButtons (UpgradeChoiceLogic.lua:113-134) then takes the
+-- StackOnly cached-reuse branch — because the hero owns every cached option,
+-- which is necessarily true for a Pom — and skips regeneration. Two
+-- consecutive provoked Poms therefore present identical option lists despite
+-- LootTypeHistory advancing correctly.
+--
+-- Vanilla Poms still bake at spawn the same way, but they're rare enough per
+-- run and surrounded by enough other RNG-consuming work that the
+-- spawn-cursor coincidence rarely surfaces. Provoked Poms appear far more
+-- often and on a more deterministic cursor, exposing the quirk.
+--
+-- Fix: when the door we just left through was a Pom provocation
+-- (RunState.NextRewardIsProvokedPom, set in src/ready.lua's LeaveRoom hook),
+-- null out source.UpgradeOptions before delegating so CreateBoonLootButtons
+-- re-enters the `nil → SetTraitsOnLoot` branch under the just-incremented
+-- LootTypeHistory["StackUpgrade"] seed. The flag is consumed on first use so a
+-- back-out + reopen reuses the (now freshly rolled) options instead of
+-- offering the player a free reroll. Vanilla Pom doors are untouched.
+modutil.mod.Path.Wrap( "OpenUpgradeChoiceMenu", function( base, source, args )
+	if source ~= nil
+		and source.Name == "StackUpgrade"
+		and ProvokeMod.RunState
+		and ProvokeMod.RunState.NextRewardIsProvokedPom
+	then
+		source.UpgradeOptions = nil
+		ProvokeMod.RunState.NextRewardIsProvokedPom = false
+		if ProvokeMod.Log then
+			ProvokeMod.Log.info( "provoke_pom",
+				"cleared cached UpgradeOptions for provoked StackUpgrade",
+				{ objectId = source.ObjectId } )
+		end
+	end
+	return base( source, args )
+end, mod )

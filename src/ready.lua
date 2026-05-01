@@ -84,6 +84,14 @@ modutil.mod.Path.Wrap( "LeaveRoom", function( base, currentRun, door )
 		ProvokeMod.RunState.LastFearCost = provokeData.FearCost
 	end
 
+	-- Mark whether the door we're leaving through was a Pom provocation, so the
+	-- OpenUpgradeChoiceMenu wrap in src/ready_late.lua knows to clear the
+	-- spawn-time UpgradeOptions cache on this run's next StackUpgrade pickup.
+	-- Always rewrite (including to false) so the flag tracks the most recent
+	-- exit and can't leak from a Pom run into a subsequent non-Pom room.
+	ProvokeMod.RunState.NextRewardIsProvokedPom =
+		(provokeData and provokeData.Provoked and provokeData.ChoiceType == "Pom") or false
+
 	-- Remove hint and kill background listener before leaving
 	ProvokeMod.DespawnProvokeHint()
 
