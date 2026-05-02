@@ -4,7 +4,7 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "1andonlyWeaver"
 name = "ProvokingTheFates"
-versionNumber = "1.0.2"
+versionNumber = "1.0.3"
 description = "Provoke reward doors to upgrade them, at the cost of temporary Oath of the Unseen fear."
 websiteUrl = "https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod"
 containsNsfwContent = false
