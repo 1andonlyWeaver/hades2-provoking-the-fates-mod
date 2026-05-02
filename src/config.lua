@@ -1,5 +1,5 @@
 return {
-  version = 0;
+  version = 1;
   enabled = true;
 
   -- Optional flat Fear offsets added on top of the greed ramp. Default 0 so
@@ -49,7 +49,7 @@ return {
   -- Devotion trials, NPC beats) don't consume a duration tick — the Fear
   -- pauses until the next fight.
   Duration_RegularBoon  = 2;
-  Duration_EnhancedBoon = 2;
+  Duration_EnhancedBoon = 3;
   Duration_Hammer       = 3;
   Duration_Gold         = 1;
   Duration_CentaurHeart = 1;
