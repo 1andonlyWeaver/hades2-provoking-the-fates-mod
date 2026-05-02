@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Enhanced Boon's base Fear duration is now 3 encounters (up from 2), so all three cost tiers line up cleanly: Tier 1 rewards last 1 encounter, Tier 2 rewards last 2, and Tier 3 rewards (Enhanced Boon, Hammer) both last 3.
+- Bumped the Chalk config schema to `version = 1` so the new Enhanced Boon default reaches existing installs. **Heads up for upgraders: this resets your `.cfg` to defaults — re-apply any custom `Cost_*`, `Weight_*`, `LogLevel`, or other tweaks after updating.**
+
 ## [1.0.3] - 2026-05-01
 
 ### Fixed
