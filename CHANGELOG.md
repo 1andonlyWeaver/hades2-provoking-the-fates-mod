@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-01
+
 ### Changed
 
 - Added the package to the Thunderstore `AI Generated` category and added an AI disclosure section to the README.
@@ -58,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Per-type config knobs** for all nine reward types: `Cost_<Type>`, `GreedMultiplier_<Type>`, `Duration_<Type>`, `Weight_<Type>` (`RegularBoon`, `EnhancedBoon`, `Hammer`, `Gold`, `CentaurHeart`, `Magick`, `Pom`, `SeleneBoon`, `HermesBoon`). Set `Weight_<Type> = 0` to exclude a type from the menu entirely.
 - **Global config knobs**: `EnableGreed`, `GreedExtendsDuration`, `ThemedSplitThreshold`, `ProvokeHoldSeconds`, `RequireIncantation`, `LogLevel` (TRACE / DEBUG / INFO / WARN / ERROR).
 
-[unreleased]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.4...HEAD
+[unreleased]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.5...HEAD
+[1.0.5]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.4...1.0.5
 [1.0.4]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.3...1.0.4
 [1.0.3]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.2...1.0.3
 [1.0.2]: https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/compare/1.0.1...1.0.2
