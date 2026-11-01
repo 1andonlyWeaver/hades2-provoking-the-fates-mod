@@ -112,6 +112,10 @@ Set `LogLevel = "DEBUG"` (or `"TRACE"`) in the config. Logs go to Hell2Modding's
 
 **Nightmare Fear** ([ReadEmAndWeep-Nightmare_Fear](https://thunderstore.io/c/hades-ii/p/ReadEmAndWeep/Nightmare_Fear/)). When both mods are installed, Provoking the Fates extends its eligible-vow pool with Nightmare Fear's Vows of Naivety, Riposte, Arrogance, Secrets, Taxes, and Panic, and skips Selene-boon provocations while the player holds Nightmare Fear's Eclipse vow. No configuration is required; detection is automatic.
 
+## AI Disclosure
+
+Portions of this mod's code and documentation were written with the help of AI coding tools. In line with [Thunderstore's rules](https://wiki.thunderstore.io/moderation/global-rules), the package is listed under the **AI Generated** category.
+
 ## Feedback
 
 Bug reports and feature requests go on the [GitHub issues tracker](https://github.com/1andonlyWeaver/hades2-provoking-the-fates-mod/issues).

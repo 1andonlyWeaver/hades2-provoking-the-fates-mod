@@ -22,7 +22,7 @@ env:
   changelog: CHANGELOG.md
   thunderstore-config: thunderstore.toml
   build-dir: build
-  artifact-content-type: application/zip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   release:
@@ -37,18 +37,19 @@ jobs:
           fi
 
       - name: Checkout files
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           lfs: true
 
       - name: Rotate unreleased section in changelog
-        uses: thomaseizinger/keep-a-changelog-new-release@77ac767b2f7f6edf2ee72ab3364ed26667086f96
+        uses: baynezy/ChangeLogger.Action@6e3ad430f08e13698bb01027a13ba4349b0143cc
         with:
           tag: ${{ inputs.tag }}
+          log-path: ${{ env.changelog }}
 
       - name: Rotate version in Thunderstore CLI config
         run: |
-          sed -i 's/versionNumber = ".*"/versionNumber = "${{ inputs.tag }}"/g' ${{ env.thunderstore-config }}
+          sed -i 's/versionNumber = ".*"/versionNumber = "${{ inputs.tag }}"/' ${{ env.thunderstore-config }}
 
       - name: Rotate version in plugin manifest
         env:
@@ -58,7 +59,7 @@ jobs:
 
       - name: Replace relative image paths with absolute paths in README
         run: |
-          sed -i 's#(\(\./\)\?${{ inputs.image-folder-name }}/#(https://github.com/${{ github.event.repository.owner.login }}/${{ github.event.repository.name }}/raw/${{ github.event.repository.default_branch }}/${{ inputs.image-folder-name }}/#g' README.md
+          sed -i 's#](\(\./\)\?${{ inputs.image-folder-name }}/#](https://github.com/${{ github.event.repository.owner.login }}/${{ github.event.repository.name }}/raw/${{ github.event.repository.default_branch }}/${{ inputs.image-folder-name }}/#g' README.md
 
       - name: Install Thunderstore CLI
         run: dotnet tool install -g tcli
@@ -71,7 +72,7 @@ jobs:
           echo "artifact-path=${{ env.build-dir }}/${ARTIFACT_NAME}" >> "$GITHUB_ENV"
 
       - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ${{ env.artifact-name }}
           path: ${{ env.artifact-path }}
@@ -93,24 +94,15 @@ jobs:
           git tag ${{ inputs.tag }} --annotate --message "Release ${{ inputs.tag }}"
           git push origin HEAD:${{ github.ref_name }} --tags
 
-      - name: Create release
-        id: release
+      - name: Create release and upload artifact
         if: ${{ !inputs.is-dry-run }}
-        uses: actions/create-release@v1
-        with:
-          release_name: ${{ inputs.tag }}
-          tag_name: ${{ inputs.tag }}
-          commitish: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact to release
-        if: ${{ !inputs.is-dry-run }}
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_name: ${{ env.artifact-name }}
-          asset_path: ${{ env.artifact-path }}
-          asset_content_type: ${{ env.artifact-content-type }}
+        run: |
+          gh release create \
+            '${{ inputs.tag }}' \
+            '${{ env.artifact-path }}' \
+            --title '${{ inputs.tag }}' \
+            --repo '${{ github.repository }}' \
+            --target '${{ github.ref_name }}' \
+            --verify-tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
